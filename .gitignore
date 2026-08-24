@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+.env.local
+data/
+*.db
+*.db-shm
+*.db-wal
+*.hash
+coverage/
+.playwright/
+test-artifacts/

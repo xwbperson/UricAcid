@@ -1,0 +1,20 @@
+services:
+  uric-acid:
+    build: .
+    image: uric-acid-observation-desk:local
+    restart: unless-stopped
+    ports:
+      - "4317:4317"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /app/data
+      PORT: 4317
+    volumes:
+      - uric-acid-data:/app/data
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  uric-acid-data:

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#183b36" />
+    <title>UricAcid · 个人观测台</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="toast-region" class="toast-region" aria-live="polite"></div>
+    <section id="gate" class="gate-shell">
+      <div class="gate-card">
+        <div class="gate-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+        <p class="eyebrow">PRIVATE OBSERVATION DESK</p>
+        <h1>把每天的记录，<em>留在自己手里。</em></h1>
+        <p class="gate-copy">这里记录膳食嘌呤估算、饮品容量和真实测量的血尿酸。它是个人回看工具，不是诊断或治疗系统。</p>
+        <form id="login-form" class="login-form">
+          <label for="login-password">共享访问口令</label>
+          <div class="password-row">
+            <input id="login-password" name="password" type="password" autocomplete="current-password" minlength="8" required placeholder="输入口令" />
+            <button class="button button-primary" type="submit">进入记录</button>
+          </div>
+          <p id="login-message" class="form-hint"></p>
+        </form>
+        <div class="gate-note"><span class="status-dot"></span> 设备验证成功后默认保持 365 天可信</div>
+      </div>
+      <div class="gate-orbit orbit-one"></div><div class="gate-orbit orbit-two"></div>
+    </section>
+
+    <div id="app" class="app-shell hidden">
+      <aside class="sidebar">
+        <div class="brand-lockup">
+          <div class="brand-symbol"><span></span><span></span><span></span></div>
+          <div><strong>UricAcid</strong><small>个人观测台</small></div>
+        </div>
+        <div class="side-rule"></div>
+        <nav class="main-nav" aria-label="主要导航">
+          <button data-route="today" class="nav-item active"><span class="nav-index">01</span><span class="nav-label">今日</span><small>快速记录</small></button>
+          <button data-route="history" class="nav-item"><span class="nav-index">02</span><span class="nav-label">历史</span><small>按日回看</small></button>
+          <button data-route="stats" class="nav-item"><span class="nav-index">03</span><span class="nav-label">统计</span><small>趋势与同期</small></button>
+          <button data-route="manage" class="nav-item"><span class="nav-index">04</span><span class="nav-label">管理</span><small>资料与数据</small></button>
+        </nav>
+        <div class="side-footer">
+          <div class="side-metric"><span>数据空间</span><strong>单一 · 私密</strong></div>
+          <button id="logout-button" class="text-button">退出当前设备</button>
+        </div>
+      </aside>
+      <main class="main-content">
+        <header class="topbar">
+          <button id="mobile-menu" class="icon-button menu-button" aria-label="打开菜单">☰</button>
+          <div class="topbar-title"><span id="page-kicker">TODAY / DAILY LOG</span><h2 id="page-title">今日</h2></div>
+          <div class="topbar-actions"><span id="save-status" class="save-status">已连接</span><button id="refresh-button" class="icon-button" aria-label="刷新">↻</button></div>
+        </header>
+        <div id="view" class="view-container"></div>
+      </main>
+      <nav class="bottom-nav" aria-label="移动端主要导航">
+        <button data-route="today" class="bottom-nav-item active"><span>◌</span><small>今日</small></button>
+        <button data-route="history" class="bottom-nav-item"><span>↺</span><small>历史</small></button>
+        <button data-route="stats" class="bottom-nav-item"><span>⌁</span><small>统计</small></button>
+        <button data-route="manage" class="bottom-nav-item"><span>⊙</span><small>管理</small></button>
+      </nav>
+    </div>
+
+    <div id="modal-root"></div>
+    <script src="/app.js" defer></script>
+  </body>
+</html>
