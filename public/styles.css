@@ -171,13 +171,18 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .management-tabs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 18px; padding-bottom: 2px; }
 .manage-layout { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, .6fr); gap: 14px; }
+.manage-library-layout { align-items: start; }
+.manage-library-layout > .panel { height: min(72vh, 760px); max-height: calc(100vh - 185px); min-height: 360px; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; }
 .library-list { display: grid; gap: 8px; }
 .library-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); padding: 12px 2px; }
 .library-item > div:last-child { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .library-item strong { font-size: 12px; }
 .library-item small { display: block; color: var(--muted); margin-top: 4px; font-size: 10px; }
+.library-filter { display: flex; align-items: center; gap: 10px; margin: -4px 0 16px; }
+.library-filter label { flex: 0 0 auto; color: var(--muted); font-size: 10px; }
+.library-filter select { width: min(100%, 220px); min-height: 40px; padding-top: 8px; padding-bottom: 8px; }
 .panel-divider { height: 1px; margin: 22px 0; background: var(--line); }
-.group-unassigned { margin-top: 12px; padding: 12px; border: 1px dashed var(--line); border-radius: 10px; background: var(--paper); }
+.group-unassigned { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 12px; border: 1px dashed var(--line); border-radius: 10px; background: var(--paper); }
 .group-unassigned strong { display: block; font-size: 11px; }
 .group-unassigned span { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .status-label { padding: 5px 7px; font-size: 9px; border-radius: 6px; background: var(--paper-deep); color: var(--muted); white-space: nowrap; }
@@ -239,6 +244,7 @@ input::placeholder, textarea::placeholder { color: #b5b3ab; }
   .hero-grid { grid-template-columns: repeat(2, 1fr); }
   .hero-card.primary { grid-column: 1 / -1; }
   .stat-layout, .manage-layout { grid-template-columns: 1fr; }
+  .manage-library-layout > .panel { height: auto; max-height: none; min-height: 0; overflow: visible; }
 }
 @media (max-width: 560px) {
   .gate-shell { padding: 14px; }
@@ -247,6 +253,8 @@ input::placeholder, textarea::placeholder { color: #b5b3ab; }
   .password-row .button { width: 100%; }
   .page-intro { display: grid; align-items: start; }
   .date-control { width: 100%; justify-content: space-between; }
+  .library-filter { display: grid; align-items: stretch; gap: 6px; }
+  .library-filter select { width: 100%; }
   .hero-grid { grid-template-columns: 1fr 1fr; gap: 9px; }
   .hero-card { min-height: 145px; padding: 16px; }
   .hero-card.primary { min-height: 195px; }
