@@ -15,6 +15,12 @@ npm run dev
 
 打开 `http://localhost:4317`。共享口令只通过交互式输入生成哈希并写入被 Git 忽略的 `.env.local`，不会写入源码、数据库或日志。网页修改口令后会写入数据目录中的独立 `password.hash` 私密文件，服务重启仍保持新口令；该文件不进入业务导出。没有 `SHARED_PASSWORD_HASH` 时，应用只提供健康检查和口令入口，业务 API 保持锁定。
 
+### Windows temporary local test console
+
+Double-click [`local-test.bat`](local-test.bat) for a persistent English menu. It provides one-click start, stop, restart, status, automated checks, browser smoke testing, password setup, browser opening, and project-folder opening. The server runs in a separate persistent `cmd /k` window; option `2` stops only the process recorded by this script and does not kill unrelated `node.exe` processes.
+
+The same actions are available from an existing terminal, for example `local-test.bat start`, `local-test.bat stop`, `local-test.bat status`, and `local-test.bat check`. Use option `7` or `local-test.bat setup` for the interactive password setup. The application requires at least 8 password characters; do not hard-code even a temporary password into the script.
+
 生产模式下必须把 `BACKUP_ENCRYPTION_KEY` 放在私密部署配置中；若要满足异盘/异机复制验收，再配置私有挂载目录 `BACKUP_REPLICA_DIR`。这两个值都不能进入 Git、导出文件或日志。
 
 ## 验证
