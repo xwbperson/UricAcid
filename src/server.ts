@@ -189,10 +189,13 @@ export function createApp(options: AppOptions = {}) {
 
   app.post("/api/foods", requireAuth, requireCsrf, (request, response) => response.status(201).json(repository.createFood(ensureBodyObject(request))));
   app.put("/api/foods/:id", requireAuth, requireCsrf, (request, response) => response.json(repository.updateFood(String(request.params.id), ensureBodyObject(request))));
+  app.delete("/api/foods/:id", requireAuth, requireCsrf, (request, response) => { const id = String(request.params.id); repository.archiveFood(id); recordAudit(db, "food.archive", request, { foodId: id }); response.json({ ok: true, archived: true }); });
   app.post("/api/recipes", requireAuth, requireCsrf, (request, response) => response.status(201).json(repository.createRecipe(ensureBodyObject(request))));
   app.put("/api/recipes/:id", requireAuth, requireCsrf, (request, response) => response.json(repository.updateRecipe(String(request.params.id), ensureBodyObject(request))));
+  app.delete("/api/recipes/:id", requireAuth, requireCsrf, (request, response) => { const id = String(request.params.id); repository.archiveRecipe(id); recordAudit(db, "recipe.archive", request, { recipeId: id }); response.json({ ok: true, archived: true }); });
   app.post("/api/beverages", requireAuth, requireCsrf, (request, response) => response.status(201).json(repository.createBeverage(ensureBodyObject(request))));
   app.put("/api/beverages/:id", requireAuth, requireCsrf, (request, response) => response.json(repository.updateBeverage(String(request.params.id), ensureBodyObject(request))));
+  app.delete("/api/beverages/:id", requireAuth, requireCsrf, (request, response) => { const id = String(request.params.id); repository.archiveBeverage(id); recordAudit(db, "beverage.archive", request, { beverageId: id }); response.json({ ok: true, archived: true }); });
   app.post("/api/groups/:kind", requireAuth, requireCsrf, (request, response) => response.status(201).json(repository.createGroup(String(request.params.kind), ensureBodyObject(request))));
   app.put("/api/groups/:kind/:id", requireAuth, requireCsrf, (request, response) => response.json(repository.renameGroup(String(request.params.kind), String(request.params.id), ensureBodyObject(request))));
   app.delete("/api/groups/:kind/:id", requireAuth, requireCsrf, (request, response) => { repository.deleteGroup(String(request.params.kind), String(request.params.id)); response.json({ ok: true }); });

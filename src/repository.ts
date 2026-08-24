@@ -463,6 +463,13 @@ export class Repository {
     return this.bootstrap(String(payload.name ?? current.name)).foods.find((food: any) => food.id === id);
   }
 
+  archiveFood(id: string) {
+    const current = this.db.prepare("SELECT id, archived_at FROM foods WHERE id = ?").get(id);
+    if (!current || current.archived_at) throw new Error("食物不存在或已归档");
+    const at = timestamp();
+    this.db.prepare("UPDATE foods SET archived_at = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").run(at, at, id);
+  }
+
   createRecipe(payload: any) {
     const name = String(payload.name || "").trim();
     if (!name) throw new Error("菜谱名称不能为空");
@@ -525,6 +532,13 @@ export class Repository {
     return this.bootstrap(String(merged.name)).recipes.find((recipe: any) => recipe.id === id);
   }
 
+  archiveRecipe(id: string) {
+    const current = this.db.prepare("SELECT id, archived_at FROM recipes WHERE id = ?").get(id);
+    if (!current || current.archived_at) throw new Error("菜谱不存在或已归档");
+    const at = timestamp();
+    this.db.prepare("UPDATE recipes SET archived_at = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").run(at, at, id);
+  }
+
   createBeverage(payload: any) {
     const name = String(payload.name || "").trim();
     if (!name) throw new Error("饮品名称不能为空");
@@ -541,6 +555,14 @@ export class Repository {
     return this.bootstrap(String(payload.name ?? current.name)).beverages.find((beverage: any) => beverage.id === id);
   }
 
+  archiveBeverage(id: string) {
+    const current = this.db.prepare("SELECT id, system, archived_at FROM beverages WHERE id = ?").get(id);
+    if (!current || current.archived_at) throw new Error("饮品不存在或已归档");
+    if (current.system) throw new Error("系统预置饮品不能删除");
+    const at = timestamp();
+    this.db.prepare("UPDATE beverages SET archived_at = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").run(at, at, id);
+  }
+
   createGroup(kind: string, payload: any) {
     const table = kind === "recipe" ? "recipe_groups" : kind === "beverage" ? "beverage_groups" : "food_groups";
     const name = String(payload.name || "").trim();
@@ -554,6 +576,7 @@ export class Repository {
     const table = kind === "recipe" ? "recipe_groups" : kind === "beverage" ? "beverage_groups" : "food_groups";
     const current = this.db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id);
     if (!current) throw new Error("分组不存在");
+    if (current.system) throw new Error("系统预置分组不能修改");
     this.db.prepare(`UPDATE ${table} SET name = ?, sort_order = ?, updated_at = ? WHERE id = ?`).run(String(payload.name ?? current.name), Number(payload.sortOrder ?? current.sort_order), timestamp(), id);
     return this.db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id);
   }
@@ -562,6 +585,7 @@ export class Repository {
     const table = kind === "recipe" ? "recipe_groups" : kind === "beverage" ? "beverage_groups" : "food_groups";
     const current = this.db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id);
     if (!current) throw new Error("分组不存在");
+    if (current.system) throw new Error("系统预置分组不能删除");
     const childTable = kind === "recipe" ? "recipes" : kind === "beverage" ? "beverages" : "foods";
     this.db.transaction(() => {
       this.db.prepare(`UPDATE ${childTable} SET group_id = NULL, updated_at = ? WHERE group_id = ?`).run(timestamp(), id);

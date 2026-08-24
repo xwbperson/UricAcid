@@ -173,8 +173,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .manage-layout { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, .6fr); gap: 14px; }
 .library-list { display: grid; gap: 8px; }
 .library-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); padding: 12px 2px; }
+.library-item > div:last-child { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .library-item strong { font-size: 12px; }
 .library-item small { display: block; color: var(--muted); margin-top: 4px; font-size: 10px; }
+.panel-divider { height: 1px; margin: 22px 0; background: var(--line); }
+.group-unassigned { margin-top: 12px; padding: 12px; border: 1px dashed var(--line); border-radius: 10px; background: var(--paper); }
+.group-unassigned strong { display: block; font-size: 11px; }
+.group-unassigned span { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .status-label { padding: 5px 7px; font-size: 9px; border-radius: 6px; background: var(--paper-deep); color: var(--muted); white-space: nowrap; }
 .status-label.prepared { background: var(--orange-soft); color: #9b5939; }
 .settings-stack { display: grid; gap: 14px; }

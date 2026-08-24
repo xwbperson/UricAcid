@@ -35,16 +35,23 @@ test("auth gate, CSRF and core entry flows work together", async () => {
 
   const bootstrap = await agent.get("/api/bootstrap");
   assert.equal(bootstrap.status, 200);
-  const createdFood = (await agent.post("/api/foods").set("X-CSRF-Token", csrf).send({ name: "验收食物", basisG: 100, purineLow: 20, purineHigh: 30, aliases: "测试" })).body;
+  const foodGroup = (await agent.post("/api/groups/food").set("X-CSRF-Token", csrf).send({ name: "验收食物分组" })).body;
+  const recipeGroup = (await agent.post("/api/groups/recipe").set("X-CSRF-Token", csrf).send({ name: "验收菜谱分组" })).body;
+  const beverageGroup = (await agent.post("/api/groups/beverage").set("X-CSRF-Token", csrf).send({ name: "验收饮品分组" })).body;
+  const createdFood = (await agent.post("/api/foods").set("X-CSRF-Token", csrf).send({ name: "验收食物", basisG: 100, purineLow: 20, purineHigh: 30, aliases: "测试", groupId: foodGroup.id })).body;
   assert.equal(createdFood.purineLow, 20);
   assert.equal(createdFood.purineHigh, 30);
+  assert.equal(createdFood.groupName, "验收食物分组");
 
-  const recipe = (await agent.post("/api/recipes").set("X-CSRF-Token", csrf).send({ name: "验收菜谱", mode: "ingredients", finalYieldG: 200, ingredients: [{ foodVersionId: createdFood.versionId, grams: 100 }] })).body;
+  const recipe = (await agent.post("/api/recipes").set("X-CSRF-Token", csrf).send({ name: "验收菜谱", mode: "ingredients", finalYieldG: 200, groupId: recipeGroup.id, ingredients: [{ foodVersionId: createdFood.versionId, grams: 100 }] })).body;
   assert.equal(recipe.purineLow, 10);
   assert.equal(recipe.purineHigh, 15);
-  const draftRecipe = (await agent.post("/api/recipes").set("X-CSRF-Token", csrf).send({ name: "未完成菜谱", mode: "ingredients", ingredients: [{ foodVersionId: createdFood.versionId, grams: 100 }] })).body;
+  assert.equal(recipe.groupName, "验收菜谱分组");
+  const draftRecipe = (await agent.post("/api/recipes").set("X-CSRF-Token", csrf).send({ name: "未完成菜谱", mode: "ingredients", groupId: recipeGroup.id, ingredients: [{ foodVersionId: createdFood.versionId, grams: 100 }] })).body;
   const draftUse = await agent.post("/api/diet-entries").set("X-CSRF-Token", csrf).send({ clientId: "draft-recipe-client", date: "2026-08-24", kind: "recipe", versionId: draftRecipe.versionId, quantityG: 100 });
   assert.equal(draftUse.status, 400);
+  const libraryBeverage = (await agent.post("/api/beverages").set("X-CSRF-Token", csrf).send({ name: "验收饮品", groupId: beverageGroup.id, containsSugar: true })).body;
+  assert.equal(libraryBeverage.groupName, "验收饮品分组");
 
   const dietPayload = { clientId: "same-client-id", date: "2026-08-24", kind: "food", versionId: createdFood.versionId, quantityG: 150 };
   const firstDiet = await agent.post("/api/diet-entries").set("X-CSRF-Token", csrf).send(dietPayload);
@@ -70,6 +77,38 @@ test("auth gate, CSRF and core entry flows work together", async () => {
   assert.equal(stats.body.urateStats.count, 1);
   assert.equal(stats.body.measurements[0].valueUmolL, 416.36);
   assert.equal(stats.body.comparisons[0].windows[0].recordedDays, 1);
+
+  const deletedDiet = await agent.delete(`/api/diet-entries/${firstDiet.body.id}`).set("X-CSRF-Token", csrf);
+  const deletedBeverageEntry = await agent.delete(`/api/beverage-entries/${beverage.body.id}`).set("X-CSRF-Token", csrf);
+  const deletedMeasurement = await agent.delete(`/api/measurements/${measurement.body.id}`).set("X-CSRF-Token", csrf);
+  assert.equal(deletedDiet.status, 200);
+  assert.equal(deletedBeverageEntry.status, 200);
+  assert.equal(deletedMeasurement.status, 200);
+  const emptiedDay = await agent.get("/api/day?date=2026-08-24");
+  assert.equal(emptiedDay.body.dietEntries.length, 0);
+  assert.equal(emptiedDay.body.beverageEntries.length, 0);
+  assert.equal(emptiedDay.body.measurements.length, 0);
+
+  const deletedFoodGroup = await agent.delete(`/api/groups/food/${foodGroup.id}`).set("X-CSRF-Token", csrf);
+  assert.equal(deletedFoodGroup.status, 200);
+  const ungroupedAfterGroupDelete = await agent.get("/api/bootstrap");
+  assert.equal(ungroupedAfterGroupDelete.body.foods.find((item: any) => item.id === createdFood.id).groupName, null);
+
+  const deletedFood = await agent.delete(`/api/foods/${createdFood.id}`).set("X-CSRF-Token", csrf);
+  const deletedRecipe = await agent.delete(`/api/recipes/${draftRecipe.id}`).set("X-CSRF-Token", csrf);
+  const deletedLibraryBeverage = await agent.delete(`/api/beverages/${libraryBeverage.id}`).set("X-CSRF-Token", csrf);
+  const protectedBeverageDelete = await agent.delete("/api/beverages/bev-water").set("X-CSRF-Token", csrf);
+  assert.equal(deletedFood.status, 200);
+  assert.equal(deletedRecipe.status, 200);
+  assert.equal(deletedLibraryBeverage.status, 200);
+  assert.equal(protectedBeverageDelete.status, 400);
+  const afterArchive = await agent.get("/api/bootstrap");
+  assert.equal(afterArchive.body.foods.some((item: any) => item.id === createdFood.id), false);
+  assert.equal(afterArchive.body.recipes.some((item: any) => item.id === draftRecipe.id), false);
+  assert.equal(afterArchive.body.beverages.some((item: any) => item.id === libraryBeverage.id), false);
+  const preservedSnapshot = await agent.get("/api/day?date=2026-08-19");
+  assert.equal(preservedSnapshot.body.dietEntries[0].name, "验收食物");
+  assert.equal(app.locals.db.prepare("SELECT group_id FROM foods WHERE id = ?").get(createdFood.id).group_id, null);
 
   const settings = await agent.patch("/api/settings").set("X-CSRF-Token", csrf).send({ defaultUrateUnit: "mg/dL", waterGoalMl: 1800 });
   assert.equal(settings.status, 200);
