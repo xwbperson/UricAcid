@@ -21,7 +21,10 @@ test("auth gate, CSRF and core entry flows work together", async () => {
   apps.push(app);
   const agent = request.agent(app);
 
-  assert.equal((await agent.get("/api/health")).body.configured, true);
+  const health = await agent.get("/api/health");
+  assert.equal(health.body.configured, true);
+  assert.match(health.headers["content-security-policy"], /default-src 'self'/);
+  assert.equal((await request(app).get("/api/auth/status").set("Cookie", "uricacid_device=stale-token")).headers["set-cookie"][0].includes("Max-Age=0"), true);
   assert.equal((await agent.get("/api/bootstrap")).status, 401);
 
   const login = await agent.post("/api/auth/login").send({ password: testPassword });
@@ -39,6 +42,9 @@ test("auth gate, CSRF and core entry flows work together", async () => {
   const recipe = (await agent.post("/api/recipes").set("X-CSRF-Token", csrf).send({ name: "验收菜谱", mode: "ingredients", finalYieldG: 200, ingredients: [{ foodVersionId: createdFood.versionId, grams: 100 }] })).body;
   assert.equal(recipe.purineLow, 10);
   assert.equal(recipe.purineHigh, 15);
+  const draftRecipe = (await agent.post("/api/recipes").set("X-CSRF-Token", csrf).send({ name: "未完成菜谱", mode: "ingredients", ingredients: [{ foodVersionId: createdFood.versionId, grams: 100 }] })).body;
+  const draftUse = await agent.post("/api/diet-entries").set("X-CSRF-Token", csrf).send({ clientId: "draft-recipe-client", date: "2026-08-24", kind: "recipe", versionId: draftRecipe.versionId, quantityG: 100 });
+  assert.equal(draftUse.status, 400);
 
   const dietPayload = { clientId: "same-client-id", date: "2026-08-24", kind: "food", versionId: createdFood.versionId, quantityG: 150 };
   const firstDiet = await agent.post("/api/diet-entries").set("X-CSRF-Token", csrf).send(dietPayload);
@@ -48,6 +54,8 @@ test("auth gate, CSRF and core entry flows work together", async () => {
 
   const beverage = await agent.post("/api/beverage-entries").set("X-CSRF-Token", csrf).send({ clientId: "bev-client", date: "2026-08-24", beverageId: "bev-water", amountMl: 500, quantity: 2 });
   assert.equal(beverage.status, 201);
+  const contextDiet = await agent.post("/api/diet-entries").set("X-CSRF-Token", csrf).send({ clientId: "context-client", date: "2026-08-19", kind: "food", versionId: createdFood.versionId, quantityG: 100 });
+  assert.equal(contextDiet.status, 201);
   const measurement = await agent.post("/api/measurements").set("X-CSRF-Token", csrf).send({ clientId: "measure-client", date: "2026-08-20", valueOriginal: 7, unitOriginal: "mg/dL" });
   assert.equal(measurement.status, 201);
   assert.equal(measurement.body.valueUmolL, 416.36);
@@ -61,6 +69,36 @@ test("auth gate, CSRF and core entry flows work together", async () => {
   const stats = await agent.get("/api/statistics?from=2026-08-01&to=2026-08-24");
   assert.equal(stats.body.urateStats.count, 1);
   assert.equal(stats.body.measurements[0].valueUmolL, 416.36);
+  assert.equal(stats.body.comparisons[0].windows[0].recordedDays, 1);
+
+  const settings = await agent.patch("/api/settings").set("X-CSRF-Token", csrf).send({ defaultUrateUnit: "mg/dL", waterGoalMl: 1800 });
+  assert.equal(settings.status, 200);
+  assert.equal(settings.body.defaultUrateUnit, "mg/dL");
+  const portions = await agent.put("/api/portions").set("X-CSRF-Token", csrf).send({ portions: [{ kind: "food", value: 125 }, { kind: "beverage", value: 750 }] });
+  assert.equal(portions.status, 200);
+  assert.equal(portions.body.portions.length, 2);
+
+  const urateCsv = await agent.get("/api/exports/urate.csv");
+  assert.equal(urateCsv.status, 200);
+  assert.match(urateCsv.text, /value_original,unit_original,value_umol_l/);
+  const dailyCsv = await agent.get("/api/exports/daily-summary.csv?from=2026-08-01&to=2026-08-24");
+  assert.equal(dailyCsv.status, 200);
+  assert.match(dailyCsv.text, /purine_low_mg,purine_high_mg,coverage/);
+  const exportJson = await agent.get("/api/backup/export.json");
+  assert.equal(exportJson.status, 200);
+  const auditTypes = app.locals.db.prepare("SELECT event_type FROM audit_events").all().map((row: any) => row.event_type);
+  assert.ok(auditTypes.includes("auth.login.success"));
+  assert.ok(auditTypes.includes("backup.export.urate_csv"));
+  assert.ok(auditTypes.includes("backup.export.daily_csv"));
+  assert.ok(auditTypes.includes("backup.export.json"));
+
+  const rejectedDelete = await agent.post("/api/data/delete-all").set("X-CSRF-Token", csrf).send({ confirmation: "wrong", createBackup: false });
+  assert.equal(rejectedDelete.status, 400);
+  const deleted = await agent.post("/api/data/delete-all").set("X-CSRF-Token", csrf).send({ confirmation: "DELETE_ALL_URIC_ACID", createBackup: false });
+  assert.equal(deleted.status, 200);
+  assert.equal(deleted.body.counts.dietEntries, 2);
+  assert.equal((await agent.get("/api/day?date=2026-08-24")).body.dietEntries.length, 0);
+  assert.ok(app.locals.db.prepare("SELECT event_type FROM audit_events WHERE event_type = 'data.delete_all'").get());
 
   const unknownFood = (await agent.post("/api/foods").set("X-CSRF-Token", csrf).send({ name: "未知参考食物", basisG: 100 })).body;
   await agent.post("/api/diet-entries").set("X-CSRF-Token", csrf).send({ clientId: "unknown-client", date: "2026-08-23", kind: "food", versionId: unknownFood.versionId, quantityG: 100 });
@@ -89,10 +127,25 @@ test("portable export excludes sessions and restore invalidates all devices", as
   const login = await agent.post("/api/auth/login").send({ password: testPassword });
   const exportResponse = await agent.get("/api/backup/export.json");
   assert.equal(exportResponse.status, 200);
+  assert.equal(exportResponse.body.appVersion, "0.1.0");
+  assert.equal(exportResponse.body.schemaVersion, 2);
+  assert.equal(exportResponse.body.manifest.schemaVersion, 2);
   assert.equal(exportResponse.body.manifest.containsSecrets, false);
   assert.equal("trusted_device_sessions" in exportResponse.body.data, false);
   const preview = await agent.post("/api/backup/restore/preview").set("X-CSRF-Token", login.body.csrfToken).send(exportResponse.body);
   assert.equal(preview.status, 200);
+  const invalidPayload = JSON.parse(JSON.stringify(exportResponse.body));
+  invalidPayload.data.foods[0].group_id = "missing-group";
+  invalidPayload.confirmation = "RESTORE_URIC_ACID";
+  const failedRestore = await agent.post("/api/backup/restore").set("X-CSRF-Token", login.body.csrfToken).send(invalidPayload);
+  assert.equal(failedRestore.status, 500);
+  assert.equal((await agent.get("/api/bootstrap")).status, 200);
+  const unsupportedPayload = JSON.parse(JSON.stringify(exportResponse.body));
+  unsupportedPayload.data.foods[0].future_field = "must not be silently dropped";
+  unsupportedPayload.confirmation = "RESTORE_URIC_ACID";
+  const unsupportedRestore = await agent.post("/api/backup/restore").set("X-CSRF-Token", login.body.csrfToken).send(unsupportedPayload);
+  assert.equal(unsupportedRestore.status, 400);
+  assert.equal((await agent.get("/api/bootstrap")).status, 200);
   const restored = await agent.post("/api/backup/restore").set("X-CSRF-Token", login.body.csrfToken).send({ ...exportResponse.body, confirmation: "RESTORE_URIC_ACID" });
   assert.equal(restored.status, 200);
   assert.equal((await agent.get("/api/bootstrap")).status, 401);

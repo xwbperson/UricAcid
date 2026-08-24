@@ -120,6 +120,8 @@ export class Repository {
         recipes: this.db.prepare("SELECT COUNT(*) AS count FROM recipes WHERE archived_at IS NULL").get().count,
         beverages: this.db.prepare("SELECT COUNT(*) AS count FROM beverages WHERE archived_at IS NULL").get().count,
       },
+      latestBackup: this.db.prepare("SELECT id, created_at, status, sha256, replica_status, verified_at FROM backup_records WHERE backup_type = 'sqlite_snapshot' ORDER BY created_at DESC LIMIT 1").get() || null,
+      backupAlert: this.db.prepare("SELECT id, created_at, status, note FROM backup_records WHERE status IN ('REPLICA_FAILED', 'FAILED') OR replica_status = 'FAILED' ORDER BY created_at DESC LIMIT 1").get() || null,
     };
   }
 
@@ -258,6 +260,7 @@ export class Repository {
       referenceHigh = asNullableNumber(source.purine_high);
       referenceBasis = 100;
       recipeVersionId = source.id;
+      if (referenceLow === null || referenceHigh === null) throw new Error("菜谱尚未完成成品重量或参考范围，不能进入正式记录");
     }
     const contribution = calculateContribution(quantityG, referenceBasis, referenceLow, referenceHigh);
     const createdAt = timestamp();
@@ -279,6 +282,7 @@ export class Repository {
       ? this.db.prepare(`SELECT f.*, fg.name AS group_name, fv.* FROM foods f LEFT JOIN food_groups fg ON fg.id = f.group_id JOIN food_versions fv ON fv.id = ? AND fv.food_id = f.id`).get(String(payload.versionId || existing.food_version_id))
       : this.db.prepare(`SELECT r.*, rg.name AS group_name, rv.* FROM recipes r LEFT JOIN recipe_groups rg ON rg.id = r.group_id JOIN recipe_versions rv ON rv.id = ? AND rv.recipe_id = r.id`).get(String(payload.versionId || existing.recipe_version_id));
     if (!source) throw new Error("选择的资料不存在");
+    if (kind === "recipe" && (source.archived_at || asNullableNumber(source.purine_low) === null || asNullableNumber(source.purine_high) === null)) throw new Error("菜谱尚未完成成品重量或参考范围，不能进入正式记录");
     const low = asNullableNumber(kind === "food" ? source.purine_low : source.purine_low);
     const high = asNullableNumber(kind === "food" ? source.purine_high : source.purine_high);
     const basis = kind === "food" ? source.basis_g : 100;
@@ -399,7 +403,7 @@ export class Repository {
     const daily = [...dailyMap.values()].sort((a, b) => a.date.localeCompare(b.date)).map((row) => ({ ...row, coverage: row.unknownCount ? "partial" : "complete" }));
     const comparisons = measurements.map((measurement: any) => ({
       measurement,
-      windows: [1, 3, 7].map((days) => ({ days, ...this.windowSummary(addDays(measurement.date, -days + 1), addDays(measurement.date, -1)) })),
+      windows: [1, 3, 7].map((days) => ({ days, ...this.windowSummary(addDays(measurement.date, -days), addDays(measurement.date, -1)) })),
     }));
     return {
       from,
@@ -588,8 +592,28 @@ export class Repository {
     return this.settings();
   }
 
+  deletePersonalData() {
+    const deletedAt = timestamp();
+    let counts = { dietEntries: 0, beverageEntries: 0, measurements: 0 };
+    const run = this.db.transaction(() => {
+      counts.dietEntries = this.db.prepare("DELETE FROM diet_entries").run().changes;
+      counts.beverageEntries = this.db.prepare("DELETE FROM beverage_entries").run().changes;
+      counts.measurements = this.db.prepare("DELETE FROM urate_measurements").run().changes;
+    });
+    run();
+    return { deletedAt, counts };
+  }
+
   exportData() {
-    return { format: "uric-acid-export", formatVersion: "1", exportedAt: timestamp(), timezone: this.settings().timezone, data: cloneData(this.db) };
+    return {
+      format: "uric-acid-export",
+      formatVersion: "1",
+      appVersion: "0.1.0",
+      schemaVersion: this.db.prepare("SELECT version FROM schema_meta LIMIT 1").get().version,
+      exportedAt: timestamp(),
+      timezone: this.settings().timezone,
+      data: cloneData(this.db),
+    };
   }
 
   restoreData(payload: any) {

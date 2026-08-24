@@ -17,6 +17,8 @@ import {
   verifyPassword,
 } from "./auth";
 import { createDatabaseSnapshot, exportJsonBuffer, exportZipBuffer, sendDownload } from "./backup";
+import { dailySummaryCsv, urateCsv } from "./csv";
+import { recordAudit } from "./audit";
 import { Repository } from "./repository";
 
 type AppOptions = { databasePath?: string; publicDir?: string; passwordHash?: string; passwordHashFile?: string };
@@ -59,8 +61,12 @@ function asyncRoute(handler: (request: Request, response: Response, next: NextFu
 
 function handleError(error: any, _request: Request, response: Response, _next: NextFunction) {
   const message = error instanceof Error ? error.message : "请求处理失败";
-  const status = /不存在|不能为空|必须|不支持|不能|格式|需要|范围|口令|重置|模板/.test(message) ? 400 : 500;
-  if (status === 500) console.error("request_failed", error?.stack || error);
+  const status = /不存在|不能为空|必须|不支持|不能|格式|需要|范围|口令|重置|模板|删除/.test(message) ? 400 : 500;
+  const database = (response.req.app as any).locals?.db;
+  if (database) {
+    try { recordAudit(database, "request.failure", _request, { path: _request.path, errorCode: error?.code || message.slice(0, 80) }); } catch { /* auditing must not hide the original failure */ }
+  }
+  if (status === 500 && error?.code !== "SQLITE_CONSTRAINT_FOREIGNKEY" && message !== "FOREIGN KEY constraint failed") console.error("request_failed", error?.stack || error);
   response.status(status).json({ error: status === 500 && config.nodeEnv === "production" ? "服务器处理失败" : message });
 }
 
@@ -88,6 +94,16 @@ export function createApp(options: AppOptions = {}) {
   const app: Express = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
+  app.use((_request, response, next) => {
+    response.setHeader("Content-Security-Policy", "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.setHeader("X-Frame-Options", "DENY");
+    response.setHeader("Referrer-Policy", "no-referrer");
+    response.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    response.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+    if (config.nodeEnv === "production") response.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    next();
+  });
   app.use(express.json({ limit: "5mb" }));
   app.use(authMiddleware(db));
 
@@ -100,19 +116,28 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.post("/api/auth/login", (request, response) => {
-    if (!configured()) return response.status(503).json({ error: "服务器尚未配置共享访问口令", code: "PASSWORD_NOT_CONFIGURED" });
-    if (!loginAllowed(request)) return response.status(429).json({ error: "尝试次数过多，请稍后再试" });
+    if (!configured()) {
+      recordAudit(db, "auth.login.rejected_unconfigured", request);
+      return response.status(503).json({ error: "服务器尚未配置共享访问口令", code: "PASSWORD_NOT_CONFIGURED" });
+    }
+    if (!loginAllowed(request)) {
+      recordAudit(db, "auth.login.rate_limited", request);
+      return response.status(429).json({ error: "尝试次数过多，请稍后再试" });
+    }
     const password = typeof request.body?.password === "string" ? request.body.password : "";
     if (!verifyPassword(password, config.passwordHash)) {
       loginFailed(request);
+      recordAudit(db, "auth.login.failure", request);
       return response.status(401).json({ error: "共享访问口令不正确" });
     }
     loginSucceeded(request);
     const session = issueSession(db, request, response);
+    recordAudit(db, "auth.login.success", request);
     return response.json({ authenticated: true, ...session });
   });
 
   app.post("/api/auth/logout", requireAuth, requireCsrf, (request, response) => {
+    recordAudit(db, "auth.session.logout", request);
     revokeSession(db, (request as any).authSession.sessionId);
     clearDeviceCookie(response);
     response.json({ ok: true });
@@ -124,11 +149,13 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.post("/api/auth/sessions/revoke/:id", requireAuth, requireCsrf, (request, response) => {
+    recordAudit(db, "auth.session.revoke", request, { targetSessionId: String(request.params.id) });
     revokeSession(db, String(request.params.id));
     response.json({ ok: true });
   });
 
   app.post("/api/auth/sessions/revoke-all", requireAuth, requireCsrf, (request, response) => {
+    recordAudit(db, "auth.session.revoke_all", request);
     revokeAllSessions(db);
     clearDeviceCookie(response);
     response.json({ ok: true });
@@ -138,6 +165,7 @@ export function createApp(options: AppOptions = {}) {
     const body = ensureBodyObject(request);
     const newHash = hashPassword(String(body.newPassword || ""));
     db.prepare("UPDATE app_settings SET updated_at = ? WHERE id = 1").run(new Date().toISOString());
+    recordAudit(db, "auth.password.changed", request);
     persistPasswordHash(newHash);
     revokeAllSessions(db);
     clearDeviceCookie(response);
@@ -151,13 +179,13 @@ export function createApp(options: AppOptions = {}) {
 
   app.post("/api/diet-entries", requireAuth, requireCsrf, (request, response) => response.status(201).json(repository.createDiet(ensureBodyObject(request))));
   app.put("/api/diet-entries/:id", requireAuth, requireCsrf, (request, response) => response.json(repository.updateDiet(String(request.params.id), ensureBodyObject(request))));
-  app.delete("/api/diet-entries/:id", requireAuth, requireCsrf, (request, response) => { repository.deleteDiet(String(request.params.id)); response.json({ ok: true }); });
+  app.delete("/api/diet-entries/:id", requireAuth, requireCsrf, (request, response) => { repository.deleteDiet(String(request.params.id)); recordAudit(db, "diet.delete", request, { entryId: String(request.params.id) }); response.json({ ok: true }); });
   app.post("/api/beverage-entries", requireAuth, requireCsrf, (request, response) => response.status(201).json(repository.createBeverageEntry(ensureBodyObject(request))));
   app.put("/api/beverage-entries/:id", requireAuth, requireCsrf, (request, response) => response.json(repository.updateBeverageEntry(String(request.params.id), ensureBodyObject(request))));
-  app.delete("/api/beverage-entries/:id", requireAuth, requireCsrf, (request, response) => { repository.deleteBeverageEntry(String(request.params.id)); response.json({ ok: true }); });
+  app.delete("/api/beverage-entries/:id", requireAuth, requireCsrf, (request, response) => { repository.deleteBeverageEntry(String(request.params.id)); recordAudit(db, "beverage.delete", request, { entryId: String(request.params.id) }); response.json({ ok: true }); });
   app.post("/api/measurements", requireAuth, requireCsrf, (request, response) => response.status(201).json(repository.createMeasurement(ensureBodyObject(request))));
   app.put("/api/measurements/:id", requireAuth, requireCsrf, (request, response) => response.json(repository.updateMeasurement(String(request.params.id), ensureBodyObject(request))));
-  app.delete("/api/measurements/:id", requireAuth, requireCsrf, (request, response) => { repository.deleteMeasurement(String(request.params.id)); response.json({ ok: true }); });
+  app.delete("/api/measurements/:id", requireAuth, requireCsrf, (request, response) => { repository.deleteMeasurement(String(request.params.id)); recordAudit(db, "urate.delete", request, { measurementId: String(request.params.id) }); response.json({ ok: true }); });
 
   app.post("/api/foods", requireAuth, requireCsrf, (request, response) => response.status(201).json(repository.createFood(ensureBodyObject(request))));
   app.put("/api/foods/:id", requireAuth, requireCsrf, (request, response) => response.json(repository.updateFood(String(request.params.id), ensureBodyObject(request))));
@@ -170,6 +198,14 @@ export function createApp(options: AppOptions = {}) {
   app.delete("/api/groups/:kind/:id", requireAuth, requireCsrf, (request, response) => { repository.deleteGroup(String(request.params.kind), String(request.params.id)); response.json({ ok: true }); });
   app.put("/api/portions", requireAuth, requireCsrf, (request, response) => response.json({ portions: repository.updatePortions(ensureBodyObject(request)) }));
   app.patch("/api/settings", requireAuth, requireCsrf, (request, response) => response.json(repository.updateSettings(ensureBodyObject(request))));
+  app.post("/api/data/delete-all", requireAuth, requireCsrf, asyncRoute(async (request, response) => {
+    const body = ensureBodyObject(request);
+    if (String(body.confirmation || "") !== "DELETE_ALL_URIC_ACID") throw new Error("删除前请输入确认短语 DELETE_ALL_URIC_ACID");
+    if (body.createBackup !== false && String(db.name) !== ":memory:") await createDatabaseSnapshot(db, repository);
+    const result = repository.deletePersonalData();
+    recordAudit(db, "data.delete_all", request, { deletedAt: result.deletedAt });
+    response.json({ ok: true, ...result });
+  }));
   app.post("/api/sources", requireAuth, requireCsrf, (request, response) => {
     const body = ensureBodyObject(request); const id = cryptoRandomUuid(); const at = new Date().toISOString();
     db.prepare("INSERT INTO reference_sources (id, title, publisher, version, url, file_hash, usage_note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(id, body.title, body.publisher || null, body.version || null, body.url || null, body.fileHash || null, body.usageNote || null, at);
@@ -177,12 +213,15 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/api/backup/records", requireAuth, (_request, response) => response.json({ records: db.prepare("SELECT * FROM backup_records ORDER BY created_at DESC").all() }));
-  app.get("/api/backup/export.json", requireAuth, (_request, response) => sendDownload(response, exportJsonBuffer(repository), `uric-acid-export-${Date.now()}.json`, "application/json; charset=utf-8"));
-  app.get("/api/backup/export.zip", requireAuth, asyncRoute(async (_request, response) => sendDownload(response, await exportZipBuffer(repository), `uric-acid-export-${Date.now()}.zip`, "application/zip")));
-  app.post("/api/backup/snapshot", requireAuth, requireCsrf, asyncRoute(async (_request, response) => response.status(201).json(await createDatabaseSnapshot(db, repository))));
+  app.get("/api/backup/export.json", requireAuth, (request, response) => { recordAudit(db, "backup.export.json", request); return sendDownload(response, exportJsonBuffer(repository), `uric-acid-export-${Date.now()}.json`, "application/json; charset=utf-8"); });
+  app.get("/api/backup/export.zip", requireAuth, asyncRoute(async (request, response) => { recordAudit(db, "backup.export.zip", request); return sendDownload(response, await exportZipBuffer(repository), `uric-acid-export-${Date.now()}.zip`, "application/zip"); }));
+  app.get("/api/exports/urate.csv", requireAuth, (request, response) => { recordAudit(db, "backup.export.urate_csv", request); return sendDownload(response, Buffer.from(urateCsv(db), "utf8"), `uric-acid-urate-${Date.now()}.csv`, "text/csv; charset=utf-8"); });
+  app.get("/api/exports/daily-summary.csv", requireAuth, (request, response) => { recordAudit(db, "backup.export.daily_csv", request); return sendDownload(response, Buffer.from(dailySummaryCsv(repository, request.query.from, request.query.to), "utf8"), `uric-acid-daily-summary-${Date.now()}.csv`, "text/csv; charset=utf-8"); });
+  app.post("/api/backup/snapshot", requireAuth, requireCsrf, asyncRoute(async (request, response) => { const result = await createDatabaseSnapshot(db, repository); recordAudit(db, "backup.snapshot.created", request, { status: result.status, replicaStatus: result.replica.status }); return response.status(result.status === "PREPARED" ? 201 : 502).json(result); }));
   app.post("/api/backup/restore/preview", requireAuth, requireCsrf, (request, response) => {
     const body = ensureBodyObject(request); validateExportPayload(body);
     const data = body.data;
+    recordAudit(db, "backup.restore.preview", request, { dateRange: findDateRange(data), counts: Object.fromEntries(Object.entries(data).map(([key, value]: any) => [key, value.length])) });
     response.json({ format: body.format, formatVersion: body.formatVersion, exportedAt: body.exportedAt, counts: Object.fromEntries(Object.entries(data).map(([key, value]: any) => [key, value.length])), dateRange: findDateRange(data) });
   });
   app.post("/api/backup/restore", requireAuth, requireCsrf, asyncRoute(async (request, response) => {
@@ -190,12 +229,16 @@ export function createApp(options: AppOptions = {}) {
     if (String(body.confirmation || "") !== "RESTORE_URIC_ACID") throw new Error("恢复前请输入确认短语 RESTORE_URIC_ACID");
     if (String(db.name) !== ":memory:") await createDatabaseSnapshot(db, repository);
     repository.restoreData(body);
+    recordAudit(db, "backup.restore.completed", request, { dateRange: findDateRange(body.data) });
     response.json({ ok: true, message: "恢复完成；所有设备凭证已清除，需要重新验证共享访问口令" });
   }));
 
   const publicDir = options.publicDir || path.join(process.cwd(), "public");
-  if (fs.existsSync(publicDir)) app.use(express.static(publicDir, { index: "index.html" }));
-  app.get(/.*/, (_request, response) => response.sendFile(path.join(publicDir, "index.html")));
+  if (fs.existsSync(publicDir)) app.use(express.static(publicDir, { index: "index.html", dotfiles: "deny" }));
+  app.get(/.*/, (request, response) => {
+    if (request.path.startsWith("/api/")) return response.status(404).json({ error: "接口不存在" });
+    return response.sendFile(path.join(publicDir, "index.html"));
+  });
   app.use(handleError);
   app.locals.db = db;
   app.locals.repository = repository;

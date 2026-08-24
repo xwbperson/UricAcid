@@ -155,8 +155,10 @@ export function issueCsrfToken(db: DB, sessionId: string) {
 }
 
 export function authMiddleware(db: DB) {
-  return (request: Request, _response: Response, next: NextFunction) => {
+  return (request: Request, response: Response, next: NextFunction) => {
+    const hasDeviceCookie = Boolean(parseCookies(request)[DEVICE_COOKIE]);
     (request as any).authSession = getSessionFromRequest(db, request);
+    if (hasDeviceCookie && !(request as any).authSession) clearDeviceCookie(response);
     next();
   };
 }

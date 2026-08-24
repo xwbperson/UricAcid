@@ -13,6 +13,9 @@ export const config = {
   passwordHashFile: path.resolve(process.env.SHARED_PASSWORD_HASH_FILE || path.join(process.env.DATA_DIR || path.join(process.cwd(), "data"), "password.hash")),
   sessionDays: Number(process.env.SESSION_DAYS || 365),
   backupEncryptionKey: process.env.BACKUP_ENCRYPTION_KEY || "",
+  backupKeyVersion: process.env.BACKUP_KEY_VERSION || "v1",
+  backupReplicaDir: process.env.BACKUP_REPLICA_DIR ? path.resolve(process.env.BACKUP_REPLICA_DIR) : "",
+  backupRetention: Math.max(1, Number(process.env.BACKUP_RETENTION || 7)),
   timezone: process.env.APP_TIMEZONE || "Asia/Shanghai",
 };
 

@@ -12,6 +12,7 @@ async function main() {
   try {
     const result = await createDatabaseSnapshot(db, new Repository(db));
     process.stdout.write(JSON.stringify({ ok: true, ...result }) + "\n");
+    if (result.status !== "PREPARED") throw new Error(`备份已生成但异机复制未验证：${result.status}`);
   } finally {
     closeDatabase(db);
   }

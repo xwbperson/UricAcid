@@ -47,14 +47,34 @@ try {
   await page.locator('.bottom-nav-item[data-route="stats"]').click();
   await page.locator('.panel').first().waitFor();
   assert.match(await page.locator('.view-container').innerText(), /血尿酸实测趋势/);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   await page.locator('.bottom-nav-item[data-route="manage"]').click();
   assert.match(await page.locator('.view-container').innerText(), /管理你的参考世界/);
+  await page.locator('[data-action="manage-tab"][data-tab="settings"]').click();
+  assert.match(await page.locator('.view-container').innerText(), /备份与迁移/);
+  assert.match(await page.locator('.view-container').innerText(), /可信设备/);
+  assert.equal(await page.locator('[data-action="download-csv"]').count(), 2);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
 
   fs.mkdirSync('test-artifacts', { recursive: true });
   await page.screenshot({ path: 'test-artifacts/mobile-manage.png', fullPage: true });
+  const desktop = await browser.newPage({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1 });
+  desktop.on('pageerror', (error) => consoleErrors.push(error.message));
+  desktop.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
+  await desktop.goto('http://127.0.0.1:4317', { waitUntil: 'networkidle' });
+  if (await desktop.locator('#gate').isVisible()) {
+    await desktop.locator('#login-password').fill(smokePassword);
+    await desktop.locator('#login-form button[type="submit"]').click();
+  }
+  await desktop.locator('#app:not(.hidden)').waitFor();
+  assert.equal(await desktop.locator('.sidebar').isVisible(), true);
+  assert.equal(await desktop.locator('.bottom-nav').isVisible(), false);
+  await desktop.locator('.nav-item[data-route="manage"]').click();
+  assert.match(await desktop.locator('.view-container').innerText(), /管理你的参考世界/);
+  assert.equal(await desktop.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  await desktop.close();
   assert.deepEqual(consoleErrors, []);
-  console.log('browser smoke passed: mobile login, food, beverage, urate, stats, manage');
+  console.log('browser smoke passed: mobile + desktop login, food, beverage, urate, stats, manage');
 } finally {
   await browser.close();
 }

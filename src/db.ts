@@ -265,11 +265,26 @@ CREATE TABLE IF NOT EXISTS backup_records (
   file_size INTEGER,
   sha256 TEXT,
   format_version TEXT NOT NULL,
+  encryption_key_version TEXT,
+  started_at TEXT,
+  completed_at TEXT,
+  exit_code INTEGER,
+  replica_path TEXT,
+  replica_sha256 TEXT,
+  replica_status TEXT,
   created_at TEXT NOT NULL,
   verified_at TEXT,
   status TEXT NOT NULL,
   note TEXT
 );
+CREATE TABLE IF NOT EXISTS audit_events (
+  id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  session_id TEXT,
+  metadata_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit_events(created_at);
 `;
 
 function now() {
@@ -340,6 +355,24 @@ function seed(db: DB) {
   insertSeedFoods(db);
 }
 
+function ensureColumn(db: DB, table: string, column: string, definition: string) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!columns.some((item: any) => item.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
+function migrate(db: DB) {
+  ensureColumn(db, "backup_records", "encryption_key_version", "TEXT");
+  ensureColumn(db, "backup_records", "started_at", "TEXT");
+  ensureColumn(db, "backup_records", "completed_at", "TEXT");
+  ensureColumn(db, "backup_records", "exit_code", "INTEGER");
+  ensureColumn(db, "backup_records", "replica_path", "TEXT");
+  ensureColumn(db, "backup_records", "replica_sha256", "TEXT");
+  ensureColumn(db, "backup_records", "replica_status", "TEXT");
+  const version = db.prepare("SELECT version FROM schema_meta LIMIT 1").get();
+  if (!version) db.prepare("INSERT INTO schema_meta (version) VALUES (2)").run();
+  else if (version.version < 2) db.prepare("UPDATE schema_meta SET version = 2").run();
+}
+
 export function openDatabase(filePath = path.join(config.dataDir, "app.db")): DB {
   if (filePath !== ":memory:") fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const db = new Database(filePath);
@@ -347,8 +380,7 @@ export function openDatabase(filePath = path.join(config.dataDir, "app.db")): DB
   db.pragma("busy_timeout = 5000");
   if (filePath !== ":memory:") db.pragma("journal_mode = WAL");
   db.exec(SCHEMA);
-  const version = db.prepare("SELECT version FROM schema_meta LIMIT 1").get();
-  if (!version) db.prepare("INSERT INTO schema_meta (version) VALUES (1)").run();
+  migrate(db);
   seed(db);
   return db;
 }
@@ -387,8 +419,10 @@ export function cloneData(db: DB) {
 export function validateExportPayload(payload: any) {
   if (!payload || payload.format !== "uric-acid-export" || payload.formatVersion !== "1") throw new Error("导出文件格式或版本不受支持");
   if (!payload.data || typeof payload.data !== "object") throw new Error("导出文件缺少数据区");
-  const required = ["app_settings", "foods", "food_versions", "recipes", "recipe_versions", "diet_entries", "beverage_entries", "urate_measurements"];
+  const required = ["app_settings", "reference_sources", "food_groups", "foods", "food_versions", "recipe_groups", "recipes", "recipe_versions", "recipe_ingredients", "beverage_groups", "beverages", "portion_presets", "diet_entries", "beverage_entries", "urate_measurements"];
   for (const table of required) if (!Array.isArray(payload.data[table])) throw new Error(`导出文件缺少 ${table}`);
+  const unknownTables = Object.keys(payload.data).filter((table) => !required.includes(table));
+  if (unknownTables.length) throw new Error(`导出文件包含不支持的数据表：${unknownTables.join(", ")}`);
   return true;
 }
 
@@ -409,13 +443,24 @@ export function replaceData(db: DB, data: Record<string, any[]>) {
     "recipe_groups",
     "beverage_groups",
   ];
+  const validatedTables = [...tableOrder, "app_settings"];
+  const allowedColumns = new Map(validatedTables.map((table) => [table, new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((column: any) => column.name))]));
+  for (const table of validatedTables) {
+    if (!Array.isArray(data[table])) throw new Error(`导出文件缺少 ${table}`);
+    for (const row of data[table]) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) throw new Error(`${table} 包含无效记录`);
+      const unsupported = Object.keys(row).filter((column) => !allowedColumns.get(table)?.has(column));
+      if (unsupported.length) throw new Error(`${table} 包含不支持字段：${unsupported.join(", ")}`);
+      if (!Object.keys(row).length) throw new Error(`${table} 包含空记录`);
+    }
+  }
   const statements = tableOrder.map((table) => ({ table, clear: db.prepare(`DELETE FROM ${table}`) }));
   const run = db.transaction(() => {
     for (const statement of statements) statement.clear.run();
     for (const table of [...tableOrder].reverse()) {
       const rows = data[table] || [];
       for (const row of rows) {
-        const columns = Object.keys(row).filter((key) => key !== "id" || row.id !== undefined);
+        const columns = Object.keys(row);
         const placeholders = columns.map(() => "?").join(",");
         const sql = `INSERT INTO ${table} (${columns.join(",")}) VALUES (${placeholders})`;
         db.prepare(sql).run(...columns.map((column) => row[column]));

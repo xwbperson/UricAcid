@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=Noto+Serif+SC:wght@500;600;700&display=swap');
-
 :root {
   --ink: #183b36;
   --ink-deep: #0e2724;
@@ -142,6 +140,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .panel-header p { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .panel-header .mono { font-family: var(--mono); font-size: 10px; color: var(--orange); }
 .metric-trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); margin: 18px 0; }
+.metric-trio.metrics-wide { grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); }
 .metric-trio > div { background: var(--card); padding: 12px; }
 .metric-trio small { color: var(--muted); display: block; font-size: 10px; }
 .metric-trio strong { display: block; font-family: var(--serif); font-size: 20px; margin-top: 6px; }
@@ -155,9 +154,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .bar-column { height: 100%; display: flex; flex-direction: column; justify-content: end; align-items: center; gap: 6px; }
 .bar-column .bar { width: min(26px, 75%); min-height: 3px; background: linear-gradient(var(--orange), var(--yellow)); border-radius: 7px 7px 2px 2px; }
 .bar-column small { font-family: var(--mono); font-size: 8px; color: var(--muted); transform: rotate(-45deg); white-space: nowrap; }
-.data-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.data-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 11px; }
 .data-table th { text-align: left; color: var(--muted); font-weight: 500; padding: 9px 5px; border-bottom: 1px solid var(--line); }
-.data-table td { padding: 10px 5px; border-bottom: 1px solid var(--line); }
+.data-table td { padding: 10px 5px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
 .data-table td:not(:first-child) { font-family: var(--mono); }
 .period-switch { display: flex; gap: 5px; flex-wrap: wrap; }
 .chip { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 99px; padding: 7px 11px; font-size: 10px; }

@@ -10,9 +10,10 @@
     "start": "node dist/src/server.js",
     "test": "tsx --test test/*.test.ts",
     "test:coverage": "c8 npm test",
-    "setup:password": "tsx scripts/setup-password.ts",
-    "db:reset": "tsx scripts/reset-db.ts",
-    "backup:once": "tsx scripts/backup-once.ts",
+    "setup:password": "node dist/scripts/setup-password.js",
+    "db:reset": "node dist/scripts/reset-db.js",
+    "backup:once": "node dist/scripts/backup-once.js",
+    "restore:snapshot": "node dist/scripts/restore-snapshot.js",
     "check": "npm run build && npm test"
   },
   "dependencies": {
