@@ -128,6 +128,23 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .row-actions button:hover { color: var(--orange); }
 .info-strip { display: flex; gap: 10px; align-items: flex-start; padding: 14px 16px; background: var(--orange-soft); border-radius: 12px; color: #8f4e31; font-size: 11px; line-height: 1.6; }
 .info-strip::before { content: 'i'; flex: 0 0 auto; width: 17px; height: 17px; display: grid; place-items: center; border: 1px solid currentColor; border-radius: 50%; font-family: var(--serif); }
+.guidance-panel { margin: 22px 0 28px; padding: 22px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.guidance-panel .panel-header { margin-bottom: 16px; }
+.guidance-grid { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 8px; }
+.guidance-card { min-width: 0; padding: 15px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.guidance-card.guidance-urate { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.guidance-card small { display: block; color: var(--muted); font-size: 10px; }
+.guidance-card.guidance-urate small { color: var(--mint); }
+.guidance-card strong { display: block; margin-top: 7px; font-family: var(--serif); font-size: 22px; letter-spacing: -.04em; }
+.guidance-card span { display: block; margin-top: 5px; color: var(--orange); font-size: 10px; }
+.guidance-card p { margin: 10px 0 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.guidance-card.guidance-urate p { color: rgba(244,240,232,.68); }
+.guidance-alerts { display: grid; gap: 7px; margin-top: 10px; }
+.guidance-alert { display: flex; align-items: baseline; gap: 9px; padding: 10px 12px; border-radius: 9px; background: var(--orange-soft); color: #8f4e31; font-size: 10px; line-height: 1.5; }
+.guidance-alert.review { background: rgba(233,200,110,.22); color: #785c1a; }
+.guidance-alert strong { flex: 0 0 auto; font-size: 10px; }
+.guidance-ok { margin-top: 10px; padding: 10px 12px; border-radius: 9px; background: rgba(185,215,197,.22); color: #3e6e5c; font-size: 10px; line-height: 1.5; }
+.guidance-footnote { margin: 12px 0 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
 .empty-state { padding: 34px 20px; text-align: center; border: 1px dashed var(--line); border-radius: 14px; color: var(--muted); }
 .empty-state strong { display: block; color: var(--ink); margin-bottom: 6px; }
 
@@ -256,6 +273,8 @@ input::placeholder, textarea::placeholder { color: #b5b3ab; }
   .library-filter { display: grid; align-items: stretch; gap: 6px; }
   .library-filter select { width: 100%; }
   .hero-grid { grid-template-columns: 1fr 1fr; gap: 9px; }
+  .guidance-panel { padding: 17px; }
+  .guidance-grid { grid-template-columns: 1fr; }
   .hero-card { min-height: 145px; padding: 16px; }
   .hero-card.primary { min-height: 195px; }
   .hero-card h3 { font-size: 12px; }

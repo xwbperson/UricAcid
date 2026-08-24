@@ -64,6 +64,45 @@ const FOOD_SEEDS = [
   ["food-dried-seaweed", "紫菜（干）", "紫菜", "food-mushroom", "干制", 415.34],
 ] as const;
 
+// 常见条目补充自 USDA/ODS Purine Database Release 2.0（2025）。
+// 该数据库报告的是四种嘌呤碱基总量，和 WS/T 560 的检测口径并不完全相同，
+// 因此这些条目保持 PREPARED，页面也会保留来源和口径说明。
+const COMMON_FOOD_SEEDS = [
+  ["food-cabbage", "圆白菜", "卷心菜,甘蓝", "food-vegetable", "生", 3.2],
+  ["food-bok-choy", "小白菜", "青梗菜,白菜", "food-vegetable", "生", 12.4],
+  ["food-broccoli", "西兰花", "绿花菜", "food-vegetable", "生", 70],
+  ["food-cauliflower", "菜花", "花椰菜", "food-vegetable", "生", 57.2],
+  ["food-cucumber", "黄瓜", "青瓜", "food-vegetable", "生", 9.4],
+  ["food-tomato", "番茄", "西红柿", "food-vegetable", "生", 6.6],
+  ["food-eggplant", "茄子", "茄瓜", "food-vegetable", "生", 50.8],
+  ["food-green-beans", "四季豆", "豆角", "food-vegetable", "生", 7.5],
+  ["food-lettuce", "生菜", "莴苣叶", "food-vegetable", "生", 4.7],
+  ["food-onion", "洋葱", "", "food-vegetable", "生", 2.2],
+  ["food-pumpkin", "南瓜", "", "food-vegetable", "生", 56.7],
+  ["food-spinach", "菠菜", "", "food-vegetable", "生", 51.3],
+  ["food-bean-sprout", "豆芽", "绿豆芽", "food-vegetable", "生", 35],
+  ["food-corn", "玉米", "玉米粒", "food-grain", "生", 11.8],
+  ["food-potato", "马铃薯", "土豆", "food-grain", "生", 6.5],
+  ["food-white-bread", "白面包", "面包", "food-grain", "熟", 12.2],
+  ["food-udon", "乌冬面", "小麦面条", "food-grain", "熟", 12.1],
+  ["food-buckwheat-noodle", "荞麦面", "荞麦面条", "food-grain", "熟", 7.6],
+  ["food-egg", "鸡蛋", "", "food-egg-milk", "熟", 0],
+  ["food-milk", "牛奶", "", "food-egg-milk", "液态", 0],
+  ["food-banana", "香蕉", "", "food-fruit", "可食部", 3],
+  ["food-strawberry", "草莓", "", "food-fruit", "可食部", 2.2],
+] as const;
+
+const RECIPE_SEEDS = [
+  ["recipe-tomato-egg", "番茄炒蛋", "西红柿炒鸡蛋", "recipe-home", 180, [["food-tomato", 100], ["food-egg", 100]]],
+  ["recipe-broccoli-stir-fry", "清炒西兰花", "", "recipe-vegetable", 180, [["food-broccoli", 200]]],
+  ["recipe-cucumber-salad", "凉拌黄瓜", "", "recipe-vegetable", 200, [["food-cucumber", 200]]],
+  ["recipe-chicken-carrot", "胡萝卜炒鸡胸", "胡萝卜炒鸡肉", "recipe-meat", 200, [["food-carrot", 100], ["food-chicken-breast", 100]]],
+  ["recipe-tomato-tofu-soup", "番茄豆腐汤", "", "recipe-soup", 400, [["food-tomato", 100], ["food-tofu", 200]]],
+  ["recipe-millet-porridge", "小米粥", "", "recipe-staple", 400, [["food-millet", 50]]],
+  ["recipe-corn-rice", "玉米米饭", "玉米饭", "recipe-staple", 300, [["food-rice", 150], ["food-corn", 50]]],
+  ["recipe-potato-eggplant", "土豆烧茄子", "", "recipe-vegetable", 300, [["food-potato", 150], ["food-eggplant", 150]]],
+] as const;
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS schema_meta (version INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -321,8 +360,48 @@ function insertSeedSource(db: DB) {
     "WS/T 560—2017 高尿酸血症与痛风患者膳食指导",
     "国家卫生健康委",
     "2017",
-    "https://www.nhc.gov.cn/ewebeditor/uploadfile/2018/06/20180613135747350.pdf",
+    "https://www.nhc.gov.cn/wjw/yingyang/201708/93b17b29518447ccb194188ab9a7335b/files/1739783557085_80487.pdf",
     "示例种子数据来源登记；每条记录仍需逐项复核后才能标记 VERIFIED。",
+    timestamp,
+  );
+  db.prepare("UPDATE reference_sources SET url = ? WHERE id = ?").run(
+    "https://www.nhc.gov.cn/wjw/yingyang/201708/93b17b29518447ccb194188ab9a7335b/files/1739783557085_80487.pdf",
+    "source-wst-560-2017",
+  );
+  db.prepare("INSERT OR IGNORE INTO reference_sources (id, title, publisher, version, url, usage_note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+    "source-nhc-2024-food-guide",
+    "成人高尿酸血症与痛风食养指南（2024年版）",
+    "国家卫生健康委",
+    "2024",
+    "https://www.nhc.gov.cn/sps/c100088/202402/9ba512ba8e314a47a181db11d2fa188d.shtml",
+    "用于记录页的一般食养参考：食物多样、蔬菜和饮水等；不自动生成个人诊疗目标。",
+    timestamp,
+  );
+  db.prepare("INSERT OR IGNORE INTO reference_sources (id, title, publisher, version, url, usage_note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+    "source-usda-purine-2025",
+    "USDA and ODS-NIH Database for the Purine Content of Foods",
+    "USDA / NIH-ODS",
+    "Release 2.0 (2025)",
+    "https://www.ars.usda.gov/northeast-area/beltsville-md-bhnrc/beltsville-human-nutrition-research-center/methods-and-application-of-food-composition-laboratory/mafcl-site-pages/purine-content-of-foods/",
+    "补充常见蔬菜、主食、水果和蛋奶；数值为四种嘌呤碱基总量（mg/100g），与 WS/T 560 的检测口径不同，暂保持 PREPARED。",
+    timestamp,
+  );
+  db.prepare("INSERT OR IGNORE INTO reference_sources (id, title, publisher, version, url, usage_note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+    "source-acr-2020-gout-guideline",
+    "2020 American College of Rheumatology Guideline for the Management of Gout",
+    "American College of Rheumatology",
+    "2020",
+    "https://rheumatology.org/press-releases/acr-releases-gout-management-guideline-with-emphasis-on-treat-to-target-strategy-for-urate-lowering-therapy",
+    "仅用于已确诊痛风且正在接受降尿酸治疗时的目标说明；不用于单次高尿酸实测或无症状人群的自动诊断。",
+    timestamp,
+  );
+  db.prepare("INSERT OR IGNORE INTO reference_sources (id, title, publisher, version, url, usage_note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+    "source-seed-recipe-examples",
+    "系统预置常见菜谱示例",
+    "Uric Acid Observation Desk",
+    "v1",
+    null,
+    "按系统预置食物版本和示例配比计算；成品重量、油盐和烹饪失水不是通用标准，条目保持 PREPARED。",
     timestamp,
   );
   db.prepare("INSERT OR IGNORE INTO reference_sources (id, title, publisher, version, usage_note, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(
@@ -343,6 +422,36 @@ function insertSeedFoods(db: DB) {
     foodInsert.run(id, name, aliases, groupId, state, timestamp, timestamp);
     versionInsert.run(`${id}-v1`, id, value, value, value, timestamp);
   }
+  const commonVersionInsert = db.prepare("INSERT OR IGNORE INTO food_versions (id, food_id, version_no, basis_g, purine_low, purine_mean, purine_high, range_type, source_id, verification_status, notes, created_at) VALUES (?, ?, 1, 100, ?, ?, ?, 'single_point', 'source-usda-purine-2025', 'PREPARED', 'USDA/ODS Release 2.0 四种嘌呤碱基总量；与 WS/T 560 口径不同，尚未逐项人工复核。', ?)");
+  for (const [id, name, aliases, groupId, state, value] of COMMON_FOOD_SEEDS) {
+    foodInsert.run(id, name, aliases, groupId, state, timestamp, timestamp);
+    commonVersionInsert.run(`${id}-v1`, id, value, value, value, timestamp);
+  }
+}
+
+function insertSeedRecipes(db: DB) {
+  const timestamp = now();
+  const recipeInsert = db.prepare("INSERT OR IGNORE INTO recipes (id, name, aliases, group_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)");
+  const versionInsert = db.prepare("INSERT OR IGNORE INTO recipe_versions (id, recipe_id, version_no, mode, final_yield_g, total_low, total_high, purine_low, purine_high, source_id, verification_status, notes, created_at) VALUES (?, ?, 1, 'ingredients', ?, ?, ?, ?, ?, 'source-seed-recipe-examples', 'PREPARED', ?, ?)");
+  const ingredientInsert = db.prepare("INSERT OR IGNORE INTO recipe_ingredients (id, recipe_version_id, food_version_id, grams) VALUES (?, ?, ?, ?)");
+  for (const [id, name, aliases, groupId, finalYieldG, ingredients] of RECIPE_SEEDS) {
+    recipeInsert.run(id, name, aliases, groupId, timestamp, timestamp);
+    const recipeVersionId = `${id}-v1`;
+    const totals = ingredients.reduce((result, [foodId, grams]) => {
+      const foodVersion = db.prepare("SELECT basis_g, purine_low, purine_high FROM food_versions WHERE id = ?").get(`${foodId}-v1`);
+      if (!foodVersion || foodVersion.purine_low === null || foodVersion.purine_high === null) return result;
+      result.low += (grams / foodVersion.basis_g) * foodVersion.purine_low;
+      result.high += (grams / foodVersion.basis_g) * foodVersion.purine_high;
+      result.known += 1;
+      return result;
+    }, { low: 0, high: 0, known: 0 });
+    const totalLow = totals.known === ingredients.length ? Math.round((totals.low + Number.EPSILON) * 1000) / 1000 : null;
+    const totalHigh = totals.known === ingredients.length ? Math.round((totals.high + Number.EPSILON) * 1000) / 1000 : null;
+    const per100Low = totalLow === null ? null : Math.round((totalLow / finalYieldG) * 100 * 1000) / 1000;
+    const per100High = totalHigh === null ? null : Math.round((totalHigh / finalYieldG) * 100 * 1000) / 1000;
+    versionInsert.run(recipeVersionId, id, finalYieldG, totalLow, totalHigh, per100Low, per100High, "示例配比和成品重量；未计油盐，烹饪失水后应按实际情况另建版本。", timestamp);
+    ingredients.forEach(([foodId, grams], index) => ingredientInsert.run(`${id}-ingredient-${index + 1}`, recipeVersionId, `${foodId}-v1`, grams));
+  }
 }
 
 function seed(db: DB) {
@@ -353,6 +462,7 @@ function seed(db: DB) {
   insertSeedPortions(db);
   insertSeedSource(db);
   insertSeedFoods(db);
+  insertSeedRecipes(db);
 }
 
 function ensureColumn(db: DB, table: string, column: string, definition: string) {

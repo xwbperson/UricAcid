@@ -28,3 +28,25 @@ test("SQLite data, schema migrations and entry snapshots survive a reopen", () =
   closeDatabase(secondDb);
   fs.rmSync(directory, { recursive: true, force: true });
 });
+
+test("seed library covers common foods, recipes and record-page guidance", () => {
+  const db = openDatabase(":memory:");
+  const repository = new Repository(db);
+  const bootstrap = repository.bootstrap();
+  assert.ok(bootstrap.foods.some((food: any) => food.name === "西兰花"));
+  assert.ok(bootstrap.foods.some((food: any) => food.name === "香蕉"));
+  assert.ok(bootstrap.foods.some((food: any) => food.name === "乌冬面"));
+  assert.ok(bootstrap.recipes.some((recipe: any) => recipe.name === "番茄炒蛋"));
+  assert.ok(bootstrap.sources.some((source: any) => source.id === "source-usda-purine-2025"));
+  assert.ok(bootstrap.sources.some((source: any) => source.id === "source-nhc-2024-food-guide"));
+
+  repository.createMeasurement({ clientId: "guidance-measurement", date: "2026-08-24", valueOriginal: 535, unitOriginal: "umol/L" });
+  repository.createBeverageEntry({ clientId: "guidance-water", date: "2026-08-24", beverageId: "bev-water", amountMl: 1700, quantity: 1 });
+  repository.createDiet({ clientId: "guidance-vegetable", date: "2026-08-24", kind: "food", versionId: "food-broccoli-v1", quantityG: 400 });
+  const day = repository.getDay("2026-08-24");
+  assert.equal(day.guidance.latestMeasurement.valueUmolL, 535);
+  assert.equal(day.guidance.dietary.water.status, "near");
+  assert.equal(day.guidance.dietary.vegetable.status, "near");
+  assert.deepEqual(day.guidance.alerts.map((alert: any) => alert.kind).sort(), ["urate", "vegetable", "water"]);
+  db.close();
+});

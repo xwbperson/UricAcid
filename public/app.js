@@ -143,6 +143,30 @@ function coverageBadge(summary) {
     : '<span class="coverage-badge">已覆盖记录</span>';
 }
 
+function guidanceStatusLabel(status, kind) {
+  if (status === 'met') return '已达到参考量';
+  if (status === 'near') return '接近参考量';
+  if (status === 'in_progress') return kind === 'water' ? '持续记录中' : '继续搭配';
+  return '尚无记录';
+}
+
+function renderGuidance(day) {
+  const guidance = day.guidance;
+  if (!guidance) return '';
+  const latest = guidance.latestMeasurement;
+  const vegetable = guidance.dietary.vegetable;
+  const water = guidance.dietary.water;
+  const urateReview = latest && latest.valueUmolL >= guidance.urate.maleUpperUmolL;
+  const latestAdviceValue = latest ? formatUrate(latest.valueUmolL) : '单次实测';
+  const urateCopy = latest
+    ? urateReview
+      ? `最近一次实测为 ${formatUrate(latest.valueUmolL)}，高于 WS/T 560—2017 中男性 ${guidance.urate.maleUpperUmolL}、女性 ${guidance.urate.femaleUpperUmolL} μmol/L 的定义参考线；该标准要求非同日两次空腹测量，不能用一次结果自行下诊断。已确诊痛风且正在接受降尿酸治疗时，ACR 的常见治疗目标参考为 <约 ${guidance.urate.goutTreatmentTargetUmolL} μmol/L，仍需由医生结合病情确认。`
+      : `最近一次实测为 ${formatUrate(latest.valueUmolL)}；仍应结合检验报告、性别、是否有痛风和肾功能等信息，由专业人员判断。若已确诊痛风并正在治疗，目标由医生设定，不能把单次结果当作个人处方。`
+    : '还没有血尿酸实测。录入检验报告后，这里会把最近一次实测与需要复核的参考线一起展示。';
+  const alerts = guidance.alerts || [];
+  return `<section class="guidance-panel" data-guidance-panel><div class="panel-header"><div><h4>基于最近实测的参考建议</h4><p>按来源资料给出记录提示，不把一次实测或食物估算变成诊断、处方或个人治疗目标。</p></div><span class="mono">GUIDANCE / ${latest ? escapeHtml(formatUrate(latest.valueUmolL)) : 'NO TEST'}</span></div><div class="guidance-grid"><article class="guidance-card guidance-urate"><small>最近一次血尿酸</small><strong>${latest ? escapeHtml(formatUrate(latest.valueUmolL)) : '—'}</strong><span>${latest ? `${formatDate(latest.date, false)} · ${urateReview ? '需要复核' : '已记录'}` : '建议先录入真实报告'}</span><p>${escapeHtml(urateCopy)}</p></article><article class="guidance-card"><small>新鲜蔬菜一般参考</small><strong>≥ ${vegetable.referenceG}g / 日</strong><span>${guidanceStatusLabel(vegetable.status, 'vegetable')} · 直接记录 ${formatNumber(vegetable.loggedG, 0)}g</span><p>指南建议每天保证蔬菜摄入；这里仅统计分组为“蔬菜”的直接食物记录，菜谱不会被假装拆分。</p></article><article class="guidance-card"><small>饮品容量一般参考</small><strong>≥ ${water.referenceMl}mL / 日</strong><span>${guidanceStatusLabel(water.status, 'water')} · 已记录 ${formatNumber(water.loggedMl, 0)}mL</span><p>${water.isCustom ? '这是你在设置中填写的个人记录目标。' : '一般资料建议至少 2000mL；2024 食养指南的 2000–3000mL 仅适用于心、肾功能正常且没有限液要求的情况。'}</p></article></div>${alerts.length ? `<div class="guidance-alerts">${alerts.map((alert) => `<div class="guidance-alert ${escapeHtml(alert.level)}"><strong>${alert.level === 'review' ? '复核提醒' : '接近提醒'}</strong><span>${escapeHtml(alert.message)}</span></div>`).join('')}</div>` : '<div class="guidance-ok">添加记录后，这里会在接近蔬菜或饮水参考量时提示；空白日期不会被当成 0。</div>'}<div class="guidance-footnote">若已经确诊痛风或正在接受降尿酸治疗，血尿酸目标应由医生结合病情确定；不要仅凭 ${escapeHtml(latestAdviceValue)} 自行停药、加药或限水。饮食记录页只提供来源性一般食养参考。</div></section>`;
+}
+
 function renderToday() {
   const day = state.day;
   const summary = day.summary;
@@ -163,6 +187,7 @@ function renderToday() {
       <article class="hero-card"><span class="card-kicker">MEASUREMENT / LAST</span><h3>最近一次实测</h3><div class="hero-number"><strong>${latest ? formatUrate(latest.valueUmolL).split(' ')[0] : '—'}</strong><span>${latest ? formatUrate(latest.valueUmolL).split(' ').slice(1).join(' ') : ''}</span></div><div class="hero-foot"><small>${latest ? `${formatDate(latest.date, false)} · 真实测量` : '还没有血尿酸记录'}</small></div></article>
     </div>
     <div class="quick-actions"><button class="action-card" data-action="open-diet" data-kind="food"><span class="action-icon">＋</span><strong>记录食物</strong><small>克数 · 参考范围</small></button><button class="action-card" data-action="open-diet" data-kind="recipe"><span class="action-icon">⌁</span><strong>记录菜谱</strong><small>成品克数 · 快速选择</small></button><button class="action-card" data-action="open-beverage"><span class="action-icon">◒</span><strong>记录饮品</strong><small>容量 · 可选数量</small></button><button class="action-card" data-action="open-measurement"><span class="action-icon">↗</span><strong>记录尿酸</strong><small>实测值 · 原始单位</small></button></div>
+    ${renderGuidance(day)}
     <div class="info-strip">本页估算的是膳食嘌呤摄入负荷，不是个人血尿酸升高值，也不用于诊断或治疗。饮品容量单独统计，不抵扣嘌呤负荷。</div>
     <div class="section-heading"><h4>今天的记录</h4><small>${allEntries.length ? `${allEntries.length} 条 · 按时间倒序` : '从第一条记录开始'}</small></div>
     <div class="record-list">${allEntries.length ? allEntries.map(renderRecordRow).join('') : '<div class="empty-state"><strong>这一天还很安静</strong><span>用上面的入口记录第一条饮食、饮品或尿酸实测。</span></div>'}</div>`;

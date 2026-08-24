@@ -203,6 +203,7 @@ export class Repository {
       beverageEntries: beverageRows.map((row: any) => ({ id: row.id, clientId: row.client_id, date: row.entry_date, beverageId: row.beverage_id, name: row.beverage_name_snapshot, amountMl: row.amount_ml, quantity: row.quantity, isPlainWater: Boolean(row.is_plain_water_snapshot), createdAt: row.created_at })),
       measurements: measurementRows.map((row: any) => this.measurementPublic(row)),
       latestMeasurement: latestMeasurement ? this.measurementPublic(latestMeasurement) : null,
+      guidance: this.guidanceForDay(dietRows, beverage, latestMeasurement ? this.measurementPublic(latestMeasurement) : null),
     };
   }
 
@@ -224,6 +225,54 @@ export class Repository {
       referenceUnitOriginal: row.reference_unit_original,
       note: row.note,
       createdAt: row.created_at,
+    };
+  }
+
+  guidanceForDay(dietRows: any[], beverage: { totalMl: number; plainWaterMl: number; otherMl: number }, latestMeasurement: any) {
+    const settings = this.settings();
+    const vegetableGrams = round3(dietRows.reduce((sum, row) => sum + (row.kind === "food" && row.group_name_snapshot === "蔬菜" ? row.quantity_g : 0), 0));
+    const vegetableReferenceG = 500;
+    const waterMinimumMl = 2000;
+    const waterReferenceMl = settings.waterGoalMl || waterMinimumMl;
+    const vegetableNearG = Math.round(vegetableReferenceG * 0.8);
+    const waterNearMl = Math.round(waterReferenceMl * 0.8);
+    const alerts: Array<{ kind: string; level: string; message: string }> = [];
+    if (vegetableGrams >= vegetableNearG && vegetableGrams < vegetableReferenceG) {
+      alerts.push({ kind: "vegetable", level: "near", message: `已直接记录约 ${vegetableGrams}g 蔬菜，接近一般参考量 ${vegetableReferenceG}g/日。` });
+    }
+    if (beverage.totalMl >= waterNearMl && beverage.totalMl < waterReferenceMl) {
+      alerts.push({ kind: "water", level: "near", message: `今日饮品总量 ${beverage.totalMl}mL，接近${settings.waterGoalMl ? "你设置的" : "一般资料中的"} ${waterReferenceMl}mL/日参考线，还差 ${round3(waterReferenceMl - beverage.totalMl)}mL。` });
+    }
+    if (latestMeasurement && latestMeasurement.valueUmolL >= 420) {
+      alerts.push({ kind: "urate", level: "review", message: `最近一次血尿酸实测为 ${latestMeasurement.valueUmolL}μmol/L，建议结合检验报告和专业人员复核。` });
+    }
+    return {
+      sources: ["source-wst-560-2017", "source-nhc-2024-food-guide", "source-acr-2020-gout-guideline"],
+      latestMeasurement,
+      urate: {
+        maleUpperUmolL: 420,
+        femaleUpperUmolL: 360,
+        goutTreatmentTargetUmolL: 360,
+        note: "WS/T 560 的定义要求通常饮食状态下非同日两次空腹测量；单次实测不能单独完成诊断，也不能替代医生确定治疗目标。",
+      },
+      dietary: {
+        vegetable: {
+          loggedG: vegetableGrams,
+          referenceG: vegetableReferenceG,
+          nearG: vegetableNearG,
+          status: vegetableGrams >= vegetableReferenceG ? "met" : vegetableGrams >= vegetableNearG ? "near" : vegetableGrams ? "in_progress" : "empty",
+        },
+        water: {
+          loggedMl: beverage.totalMl,
+          referenceMl: waterReferenceMl,
+          generalMinimumMl: waterMinimumMl,
+          nearMl: waterNearMl,
+          isCustom: Boolean(settings.waterGoalMl),
+          status: beverage.totalMl >= waterReferenceMl ? "met" : beverage.totalMl >= waterNearMl ? "near" : beverage.totalMl ? "in_progress" : "empty",
+        },
+        note: "蔬菜与饮水是来源性一般食养参考，不是个人医疗目标；心肾功能异常或需要限液时按医生/营养专业人员意见。",
+      },
+      alerts,
     };
   }
 

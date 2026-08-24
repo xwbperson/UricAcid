@@ -4,6 +4,10 @@
 
 管理页的食物、菜谱、饮品标签分别管理各自的分组；条目可以选择分组，也可以保持未分组。资料列表支持按分组筛选，桌面端资料框与分组框独立滚动。删除参考库条目会将其归档并从新的选择器中移除，历史记录仍保留录入时快照；每日饮食、饮品和尿酸记录支持逐条删除。
 
+首批参考库补充了常见蔬菜、主食、水果、蛋奶和 8 个示例菜谱。食物值登记了 WS/T 560—2017 或 USDA/ODS Release 2.0（2025）来源；USDA 数据的四种嘌呤碱基口径与 WS/T 560 不完全相同，新增条目均保持 `PREPARED`，不会伪装成逐项核验完成。
+
+今日记录页会根据最近一次真实尿酸实测显示复核提示，并显示来源性的一般食养参考：新鲜蔬菜 `≥500g/日`、饮品容量至少 `2000mL/日`（心肾功能正常且没有限液要求时才可参考）。记录接近这些参考量时会出现页面内提醒；这些数字不是个人医疗目标，也不提供推送或用药建议。
+
 ## 本地运行
 
 需要 Node.js 22+。
@@ -31,7 +35,7 @@ The same actions are available from an existing terminal, for example `local-tes
 npm run check
 ```
 
-这会执行 TypeScript 构建和 10 项服务端测试。浏览器烟测使用 Playwright：
+这会执行 TypeScript 构建和 11 项服务端测试。浏览器烟测使用 Playwright：
 
 ```powershell
 npx playwright install chromium
@@ -41,7 +45,7 @@ $env:SHARED_PASSWORD_HASH = $taskHash
 python C:\Users\xiewe\.codex\skills\webapp-testing\scripts\with_server.py --server "node dist/src/server.js" --port 4317 -- node test/browser-smoke.mjs
 ```
 
-烟测覆盖 360px 视口下的口令门、食物/菜谱/饮品独立分组管理、按分组筛选、参考库条目归档、食物/饮品/尿酸记录逐条删除、统计、管理/设置页，以及 1280px 桌面布局；同时检查两个管理面板独立滚动、无横向溢出和浏览器错误。测试产生的截图位于 `test-artifacts/`，不进入 Git。
+烟测覆盖 360px 视口下的口令门、食物/菜谱/饮品独立分组管理、按分组筛选、常见食物/菜谱种子、参考库条目归档、食物/饮品/尿酸记录逐条删除、统计、管理/设置页，以及 1280px 桌面布局；同时检查两个管理面板独立滚动、无横向溢出和浏览器错误。测试产生的截图位于 `test-artifacts/`，不进入 Git。
 
 ## Docker 部署
 

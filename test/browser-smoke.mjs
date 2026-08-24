@@ -5,6 +5,7 @@ import { chromium } from 'playwright';
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 360, height: 800 }, deviceScaleFactor: 1 });
 const smokePassword = process.env.SMOKE_PASSWORD;
+const baseUrl = process.env.SMOKE_BASE_URL || 'http://127.0.0.1:4317';
 assert.ok(smokePassword, 'SMOKE_PASSWORD must be provided by the test runner');
 const consoleErrors = [];
 page.on('pageerror', (error) => consoleErrors.push(error.message));
@@ -12,7 +13,7 @@ page.on('console', (message) => { if (message.type() === 'error') consoleErrors.
 page.on('dialog', (dialog) => dialog.accept());
 
 try {
-  await page.goto('http://127.0.0.1:4317', { waitUntil: 'networkidle' });
+  await page.goto(baseUrl, { waitUntil: 'networkidle' });
   assert.equal(await page.locator('#gate').isVisible(), true);
   assert.match(await page.locator('#gate').innerText(), /共享访问口令/);
 
@@ -30,6 +31,15 @@ try {
   await page.waitForTimeout(250);
   assert.equal(await page.locator('.record-row').count() >= 1, true);
 
+  await page.locator('[data-action="open-diet"][data-kind="food"]').click();
+  await page.locator('[data-form="diet"] .picker-search').fill('西兰花');
+  await page.locator('[data-form="diet"] .picker-option').filter({ hasText: '西兰花' }).click();
+  await page.locator('[data-form="diet"] [name="quantityG"]').fill('400');
+  await page.locator('[data-form="diet"] button[type="submit"]').click();
+  await page.waitForTimeout(250);
+  assert.match(await page.locator('[data-guidance-panel]').innerText(), /400g/);
+  assert.match(await page.locator('[data-guidance-panel]').innerText(), /接近提醒/);
+
   await page.locator('[data-action="open-beverage"]').click();
   await page.locator('[data-form="beverage"] [name="beverageId"]').selectOption('bev-water');
   await page.locator('[data-form="beverage"] [name="amountMl"]').fill('500');
@@ -38,12 +48,30 @@ try {
   await page.waitForTimeout(250);
   assert.match(await page.locator('.view-container').innerText(), /1,?000/);
 
+  await page.locator('[data-action="open-beverage"]').click();
+  await page.locator('[data-form="beverage"] [name="beverageId"]').selectOption('bev-water');
+  await page.locator('[data-form="beverage"] [name="amountMl"]').fill('700');
+  await page.locator('[data-form="beverage"] button[type="submit"]').click();
+  await page.waitForTimeout(250);
+  assert.match(await page.locator('[data-guidance-panel]').innerText(), /1,?700mL/);
+  assert.match(await page.locator('[data-guidance-panel]').innerText(), /接近提醒/);
+
   await page.locator('[data-action="open-measurement"]').click();
   await page.locator('[data-form="measurement"] [name="valueOriginal"]').fill('7');
   await page.locator('[data-form="measurement"] [name="unitOriginal"]').selectOption('mg/dL');
   assert.match(await page.locator('.urate-preview').innerText(), /416\.36/);
   await page.locator('[data-form="measurement"]').evaluate((form) => form.requestSubmit());
   await page.waitForTimeout(700);
+
+  await page.locator('[data-action="open-measurement"]').click();
+  await page.locator('[data-form="measurement"] [name="valueOriginal"]').fill('535');
+  await page.locator('[data-form="measurement"] [name="unitOriginal"]').selectOption('umol/L');
+  await page.locator('[data-form="measurement"]').evaluate((form) => form.requestSubmit());
+  await page.waitForTimeout(700);
+  assert.match(await page.locator('[data-guidance-panel]').innerText(), /535/);
+  assert.match(await page.locator('[data-guidance-panel]').innerText(), /复核提醒/);
+  fs.mkdirSync('test-artifacts', { recursive: true });
+  await page.screenshot({ path: 'test-artifacts/mobile-guidance.png', fullPage: true });
 
   await page.locator('.bottom-nav-item[data-route="stats"]').click();
   await page.locator('.panel').first().waitFor();
@@ -85,6 +113,7 @@ try {
   assert.equal(await page.locator('[data-group-manager="food"] .library-item').filter({ hasText: smokeGroupName }).count(), 0);
   await page.locator('[data-action="manage-tab"][data-tab="recipe"]').click();
   assert.equal(await page.locator('[data-group-manager="recipe"]').count(), 1);
+  assert.match(await page.locator('[data-library-list="recipe"]').innerText(), /番茄炒蛋/);
   await page.locator('[data-action="manage-tab"][data-tab="beverage"]').click();
   assert.equal(await page.locator('[data-group-manager="beverage"]').count(), 1);
   await page.locator('[data-action="manage-tab"][data-tab="settings"]').click();
@@ -96,19 +125,25 @@ try {
   fs.mkdirSync('test-artifacts', { recursive: true });
   await page.screenshot({ path: 'test-artifacts/mobile-manage.png', fullPage: true });
   await page.locator('.bottom-nav-item[data-route="today"]').click();
-  await page.locator('[data-action="delete-diet"]').first().click();
-  await page.waitForTimeout(250);
-  await page.locator('[data-action="delete-beverage"]').first().click();
-  await page.waitForTimeout(250);
-  await page.locator('[data-action="delete-measurement"]').first().click();
-  await page.waitForTimeout(250);
+  while (await page.locator('[data-action="delete-diet"]').count()) {
+    await page.locator('[data-action="delete-diet"]').first().click();
+    await page.waitForTimeout(250);
+  }
+  while (await page.locator('[data-action="delete-beverage"]').count()) {
+    await page.locator('[data-action="delete-beverage"]').first().click();
+    await page.waitForTimeout(250);
+  }
+  while (await page.locator('[data-action="delete-measurement"]').count()) {
+    await page.locator('[data-action="delete-measurement"]').first().click();
+    await page.waitForTimeout(250);
+  }
   assert.equal(await page.locator('[data-action="delete-diet"]').count(), 0);
   assert.equal(await page.locator('[data-action="delete-beverage"]').count(), 0);
   assert.equal(await page.locator('[data-action="delete-measurement"]').count(), 0);
   const desktop = await browser.newPage({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1 });
   desktop.on('pageerror', (error) => consoleErrors.push(error.message));
   desktop.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
-  await desktop.goto('http://127.0.0.1:4317', { waitUntil: 'networkidle' });
+  await desktop.goto(baseUrl, { waitUntil: 'networkidle' });
   if (await desktop.locator('#gate').isVisible()) {
     await desktop.locator('#login-password').fill(smokePassword);
     await desktop.locator('#login-form button[type="submit"]').click();
