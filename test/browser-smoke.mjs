@@ -24,6 +24,38 @@ try {
   assert.match(await page.locator('#page-title').innerText(), /今日/);
   assert.equal(await page.locator('.quick-actions .action-card').count(), 5);
 
+  assert.equal(await page.locator('.sidebar.open').count(), 0);
+  await page.locator('#mobile-menu').click();
+  await page.locator('.sidebar.open').waitFor();
+  assert.equal(await page.locator('.mobile-menu-backdrop.open').count(), 1);
+  await page.locator('.mobile-menu-backdrop').click({ position: { x: 4, y: 4 } });
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator('.sidebar.open').count(), 0);
+
+  await page.locator('#mobile-menu').click();
+  await page.locator('.sidebar.open').waitFor();
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator('.sidebar.open').count(), 0);
+
+  await page.locator('#mobile-menu').click();
+  await page.locator('.sidebar.open').waitFor();
+  await page.locator('.sidebar .nav-item[data-route="treatment"]').click();
+  await page.locator('.treatment-intro').waitFor();
+  assert.equal(await page.locator('.sidebar.open').count(), 0);
+  await page.locator('[data-action="open-treatment"]').click();
+  await page.locator('.modal').waitFor();
+  const mobileModalGeometry = await page.locator('.modal').evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    return { height: rect.height, viewportHeight: window.innerHeight };
+  });
+  assert.equal(mobileModalGeometry.height < mobileModalGeometry.viewportHeight - 20, true);
+  await page.locator('.modal-backdrop').click({ position: { x: 4, y: 4 } });
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator('.modal').count(), 0);
+  await page.locator('.bottom-nav-item[data-route="today"]').click();
+  await page.locator('.quick-actions .action-card').first().waitFor();
+
   await page.locator('[data-action="open-diet"][data-kind="food"]').click();
   await page.locator('.modal').waitFor();
   await page.locator('.picker-option').first().click();

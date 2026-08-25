@@ -30,7 +30,7 @@
     </section>
 
     <div id="app" class="app-shell hidden">
-      <aside class="sidebar">
+      <aside id="sidebar" class="sidebar">
         <div class="brand-lockup">
           <div class="brand-symbol"><span></span><span></span><span></span></div>
           <div><strong>UricAcid</strong><small>个人观测台</small></div>
@@ -48,9 +48,10 @@
           <button id="logout-button" class="text-button">退出当前设备</button>
         </div>
       </aside>
+      <button id="mobile-menu-backdrop" class="mobile-menu-backdrop" type="button" aria-label="关闭菜单" aria-hidden="true"></button>
       <main id="main-content" class="main-content" tabindex="-1">
         <header class="topbar">
-          <button id="mobile-menu" class="icon-button menu-button" aria-label="打开菜单">☰</button>
+          <button id="mobile-menu" class="icon-button menu-button" type="button" aria-label="打开菜单" aria-expanded="false" aria-controls="sidebar">☰</button>
           <div class="topbar-title"><span id="page-kicker">TODAY / DAILY LOG</span><h2 id="page-title">今日</h2></div>
           <div class="topbar-actions"><span id="save-status" class="save-status">已连接</span><button id="refresh-button" class="icon-button" aria-label="刷新">↻</button></div>
         </header>

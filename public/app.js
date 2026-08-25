@@ -19,6 +19,22 @@ const state = {
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
+function setMobileMenuOpen(open) {
+  const sidebar = $('.sidebar');
+  const backdrop = $('#mobile-menu-backdrop');
+  const menuButton = $('#mobile-menu');
+  if (!sidebar) return;
+  sidebar.classList.toggle('open', open);
+  backdrop?.classList.toggle('open', open);
+  backdrop?.setAttribute('aria-hidden', String(!open));
+  menuButton?.setAttribute('aria-expanded', String(open));
+  menuButton?.setAttribute('aria-label', open ? '关闭菜单' : '打开菜单');
+  document.body.classList.toggle('mobile-menu-open', open);
+}
+
+function closeMobileMenu() { setMobileMenuOpen(false); }
+function toggleMobileMenu() { setMobileMenuOpen(!$('.sidebar')?.classList.contains('open')); }
+
 function todayIso() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
 }
@@ -146,7 +162,7 @@ function setRoute(route) {
   }[route] || ['TODAY / DAILY LOG', '今日'];
   $('#page-kicker').textContent = meta[0]; $('#page-title').textContent = meta[1];
   $('#main-content')?.focus({ preventScroll: true });
-  $('#sidebar')?.classList.remove('open');
+  closeMobileMenu();
   renderCurrentRoute();
 }
 
@@ -667,7 +683,13 @@ document.addEventListener('submit', async (event) => {
 $$('[data-route]').forEach((button) => button.addEventListener('click', () => setRoute(button.dataset.route)));
 window.addEventListener('hashchange', () => { const route = location.hash.replace('#', '') || 'today'; if (route !== state.route) setRoute(route); });
 $('#refresh-button').addEventListener('click', async () => { await loadData(); await renderCurrentRoute(); showToast('已刷新'); });
-$('#mobile-menu').addEventListener('click', () => $('.sidebar').classList.toggle('open'));
+$('#mobile-menu').addEventListener('click', toggleMobileMenu);
+$('#mobile-menu-backdrop').addEventListener('click', closeMobileMenu);
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  if (state.modalContext) closeModal();
+  else closeMobileMenu();
+});
 $('#logout-button').addEventListener('click', async () => { try { await api('/api/auth/logout', { method: 'POST', body: JSON.stringify({}) }); } catch {} showGate('已退出当前设备'); });
 $('#login-form').addEventListener('submit', async (event) => { event.preventDefault(); const input = $('#login-password'); const message = $('#login-message'); message.textContent = '验证中…'; try { const result = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ password: input.value }) }); state.csrf = result.csrfToken; input.value = ''; $('#gate').classList.add('hidden'); $('#app').classList.remove('hidden'); await loadData(); setRoute('today'); } catch (error) { message.textContent = error.message; input.select(); } });
 

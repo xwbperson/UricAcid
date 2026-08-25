@@ -84,6 +84,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .save-status { font-family: var(--mono); font-size: 10px; color: var(--ink-soft); padding: 6px 10px; border: 1px solid var(--line); border-radius: 99px; background: rgba(255,253,248,.45); }
 .icon-button { width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); background: var(--card); font-size: 18px; }
 .menu-button { display: none; }
+.mobile-menu-backdrop { display: none; }
 .view-container { padding: 28px clamp(20px, 4vw, 58px) 60px; max-width: 1440px; }
 .bottom-nav { display: none; }
 
@@ -301,9 +302,9 @@ input::placeholder, textarea::placeholder { color: #b5b3ab; }
 .picker-option small { color: var(--muted); font-size: 9px; }
 .ingredient-row { min-width: 0; }
 .ingredient-row select { min-width: 0; }
-.modal-backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(14,39,36,.5); display: grid; place-items: end center; padding: 18px; }
-.modal { width: min(100%, 680px); max-height: min(92vh, 780px); overflow: auto; border-radius: 20px; background: var(--card); box-shadow: 0 30px 80px rgba(0,0,0,.25); padding: 24px; }
-.modal-header { display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 20px; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 30; background: rgba(14,39,36,.5); display: grid; place-items: end center; padding: 18px; overflow: hidden; }
+.modal { width: min(100%, 680px); max-height: min(92vh, 780px); max-height: min(92dvh, 780px); overflow: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; border-radius: 20px; background: var(--card); box-shadow: 0 30px 80px rgba(0,0,0,.25); padding: 24px; }
+.modal-header { position: sticky; top: -24px; z-index: 1; display: flex; justify-content: space-between; align-items: start; gap: 12px; margin: -24px -24px 20px; padding: 24px 24px 14px; background: var(--card); border-bottom: 1px solid var(--line); }
 .modal-header h3 { margin: 0; font-family: var(--serif); font-size: 22px; letter-spacing: -.04em; }
 .modal-header p { margin: 5px 0 0; color: var(--muted); font-size: 11px; }
 .modal-close { flex: 0 0 44px; width: 44px; height: 44px; border: 1px solid var(--line); border-radius: 9px; background: transparent; color: var(--ink); }
@@ -315,8 +316,11 @@ input::placeholder, textarea::placeholder { color: #b5b3ab; }
 
 @media (max-width: 900px) {
   .app-shell { display: block; padding-bottom: 72px; }
-  .sidebar { position: fixed; z-index: 15; inset: 0 auto 0 0; width: 280px; transform: translateX(-105%); transition: transform .25s ease; box-shadow: 20px 0 70px rgba(0,0,0,.2); }
+  .sidebar { position: fixed; z-index: 20; inset: 0 auto 0 0; width: 280px; transform: translateX(-105%); transition: transform .25s ease; box-shadow: 20px 0 70px rgba(0,0,0,.2); }
   .sidebar.open { transform: translateX(0); }
+  .mobile-menu-backdrop { display: block; position: fixed; z-index: 19; inset: 0; width: 100%; height: 100%; border: 0; padding: 0; background: rgba(14,39,36,.3); opacity: 0; pointer-events: none; transition: opacity .25s ease; }
+  .mobile-menu-backdrop.open { opacity: 1; pointer-events: auto; }
+  body.mobile-menu-open { overflow: hidden; }
   .menu-button { display: grid; }
   .topbar { height: 78px; padding: 18px 20px; gap: 13px; }
   .topbar-title { flex: 1; }
@@ -376,8 +380,9 @@ input::placeholder, textarea::placeholder { color: #b5b3ab; }
   .action-card small { font-size: 9px; }
   .form-grid { grid-template-columns: 1fr; }
   .form-field.full { grid-column: auto; }
-  .modal-backdrop { padding: 0; }
-  .modal { max-height: 100vh; border-radius: 20px 20px 0 0; padding: 22px 18px calc(24px + env(safe-area-inset-bottom)); }
+  .modal-backdrop { padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); }
+  .modal { width: 100%; max-height: min(88vh, 760px); max-height: min(88dvh, 760px); border-radius: 18px 18px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); }
+  .modal-header { top: -18px; margin: -18px -16px 18px; padding: 18px 16px 13px; }
   .panel { padding: 17px; }
   input, select, textarea { font-size: 16px; }
   .metric-trio strong { font-size: 17px; }
