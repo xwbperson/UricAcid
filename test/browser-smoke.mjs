@@ -24,6 +24,19 @@ try {
   assert.match(await page.locator('#page-title').innerText(), /今日/);
   assert.equal(await page.locator('.quick-actions .action-card').count(), 5);
 
+  await page.addStyleTag({ content: '@media (max-width: 900px) { #app { --mobile-safe-area: 34px !important; } }' });
+  const bottomNavSafeAreaGeometry = await page.locator('.bottom-nav').evaluate((nav) => {
+    const navRect = nav.getBoundingClientRect();
+    const labelRect = nav.querySelector('small').getBoundingClientRect();
+    return {
+      height: navRect.height,
+      labelBottom: labelRect.bottom,
+      navBottom: navRect.bottom,
+    };
+  });
+  assert.equal(bottomNavSafeAreaGeometry.height >= 102, true);
+  assert.equal(bottomNavSafeAreaGeometry.labelBottom <= bottomNavSafeAreaGeometry.navBottom, true);
+
   assert.equal(await page.locator('.sidebar.open').count(), 0);
   await page.locator('#mobile-menu').click();
   await page.locator('.sidebar.open').waitFor();
