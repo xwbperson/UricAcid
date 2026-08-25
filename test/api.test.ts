@@ -164,13 +164,23 @@ test("portable export excludes sessions and restore invalidates all devices", as
   apps.push(app);
   const agent = request.agent(app);
   const login = await agent.post("/api/auth/login").send({ password: testPassword });
+  const treatment = await agent.post("/api/treatment-events").set("X-CSRF-Token", login.body.csrfToken).send({
+    clientId: "backup-treatment-client",
+    eventDate: "2026-08-24",
+    eventType: "hospital_check",
+    testName: "血尿酸",
+    results: [{ testName: "血尿酸", resultText: "535", numericValue: 535, unit: "μmol/L" }],
+  });
+  assert.equal(treatment.status, 201);
   const exportResponse = await agent.get("/api/backup/export.json");
   assert.equal(exportResponse.status, 200);
   assert.equal(exportResponse.body.appVersion, "0.1.0");
-  assert.equal(exportResponse.body.schemaVersion, 2);
-  assert.equal(exportResponse.body.manifest.schemaVersion, 2);
+  assert.equal(exportResponse.body.schemaVersion, 3);
+  assert.equal(exportResponse.body.manifest.schemaVersion, 3);
   assert.equal(exportResponse.body.manifest.containsSecrets, false);
   assert.equal("trusted_device_sessions" in exportResponse.body.data, false);
+  assert.equal(exportResponse.body.data.treatment_events.length, 1);
+  assert.equal(exportResponse.body.data.treatment_event_results.length, 1);
   const preview = await agent.post("/api/backup/restore/preview").set("X-CSRF-Token", login.body.csrfToken).send(exportResponse.body);
   assert.equal(preview.status, 200);
   const invalidPayload = JSON.parse(JSON.stringify(exportResponse.body));
@@ -187,5 +197,7 @@ test("portable export excludes sessions and restore invalidates all devices", as
   assert.equal((await agent.get("/api/bootstrap")).status, 200);
   const restored = await agent.post("/api/backup/restore").set("X-CSRF-Token", login.body.csrfToken).send({ ...exportResponse.body, confirmation: "RESTORE_URIC_ACID" });
   assert.equal(restored.status, 200);
+  assert.equal(app.locals.db.prepare("SELECT COUNT(*) AS count FROM treatment_events").get().count, 1);
+  assert.equal(app.locals.db.prepare("SELECT COUNT(*) AS count FROM treatment_event_results").get().count, 1);
   assert.equal((await agent.get("/api/bootstrap")).status, 401);
 });

@@ -15,6 +15,37 @@ import {
 import { cloneData, type DB, replaceData, uuid } from "./db";
 
 const CALCULATION_VERSION = "purine-range-v1";
+const TREATMENT_EVENT_TYPES = new Set(["flare", "hospital_check", "oral_medication", "topical_medication", "symptom_change", "follow_up", "other"]);
+const TREATMENT_EVENT_LABELS: Record<string, string> = {
+  flare: "痛风发作",
+  hospital_check: "医院检查",
+  oral_medication: "口服药",
+  topical_medication: "外用药",
+  symptom_change: "症状变化",
+  follow_up: "复诊计划",
+  other: "其他",
+};
+const TREATMENT_TEXT_FIELDS: Array<[string, string]> = [
+  ["title", "title"],
+  ["notes", "notes"],
+  ["symptomSite", "symptom_site"],
+  ["symptomState", "symptom_state"],
+  ["symptomDescription", "symptom_description"],
+  ["medicineName", "medicine_name"],
+  ["dosage", "dosage"],
+  ["dosageUnit", "dosage_unit"],
+  ["frequency", "frequency"],
+  ["applicationSite", "application_site"],
+  ["instructions", "instructions"],
+  ["facility", "facility"],
+  ["department", "department"],
+  ["clinician", "clinician"],
+  ["testName", "test_name"],
+  ["reportConclusion", "report_conclusion"],
+  ["planItem", "plan_item"],
+  ["otherName", "other_name"],
+  ["otherDescription", "other_description"],
+];
 
 function timestamp() {
   return new Date().toISOString();
@@ -34,6 +65,46 @@ function requireDate(value: unknown) {
 
 function assertNotFuture(date: string, timeZone: string) {
   if (date > todayInTimezone(timeZone)) throw new Error("不能无提示地记录未来日期");
+}
+
+function optionalText(value: unknown) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text || null;
+}
+
+function optionalDate(value: unknown, label: string) {
+  if (value === null || value === undefined || value === "") return null;
+  const date = String(value);
+  if (!isValidIsoDate(date)) throw new Error(`${label}格式必须为 YYYY-MM-DD`);
+  return date;
+}
+
+function optionalTime(value: unknown) {
+  const time = optionalText(value);
+  if (time === null) return null;
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new Error("事件时间格式必须为 HH:mm");
+  return time;
+}
+
+function optionalSeverity(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const severity = Number(value);
+  if (!Number.isFinite(severity) || severity < 0 || severity > 10) throw new Error("严重程度必须在 0 到 10 之间");
+  return Math.round(severity * 10) / 10;
+}
+
+function optionalFinite(value: unknown, label: string) {
+  if (value === null || value === undefined || value === "") return null;
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) throw new Error(`${label}必须是有效数字`);
+  return numberValue;
+}
+
+function requireTreatmentType(value: unknown) {
+  const eventType = String(value || "");
+  if (!TREATMENT_EVENT_TYPES.has(eventType)) throw new Error("治疗记录类型无效");
+  return eventType;
 }
 
 function rowWithSnapshot(row: any) {
@@ -188,6 +259,7 @@ export class Repository {
     const dietRows = this.db.prepare("SELECT * FROM diet_entries WHERE entry_date = ? AND deleted_at IS NULL ORDER BY created_at DESC").all(date);
     const beverageRows = this.db.prepare("SELECT * FROM beverage_entries WHERE entry_date = ? AND deleted_at IS NULL ORDER BY created_at DESC").all(date);
     const measurementRows = this.db.prepare("SELECT * FROM urate_measurements WHERE measured_date = ? AND deleted_at IS NULL ORDER BY COALESCE(measured_time, '99:99') DESC, created_at DESC").all(date);
+    const treatmentEvents = this.listTreatmentEvents(date, date);
     const summary = summarizeKnownEntries(dietRows.map((row: any) => ({ low: row.contribution_low, high: row.contribution_high })));
     const beverage = {
       totalMl: round3(beverageRows.reduce((sum: number, row: any) => sum + row.amount_ml, 0)),
@@ -202,6 +274,8 @@ export class Repository {
       dietEntries: dietRows.map(rowWithSnapshot),
       beverageEntries: beverageRows.map((row: any) => ({ id: row.id, clientId: row.client_id, date: row.entry_date, beverageId: row.beverage_id, name: row.beverage_name_snapshot, amountMl: row.amount_ml, quantity: row.quantity, isPlainWater: Boolean(row.is_plain_water_snapshot), createdAt: row.created_at })),
       measurements: measurementRows.map((row: any) => this.measurementPublic(row)),
+      treatmentEvents,
+      treatmentEventCount: treatmentEvents.length,
       latestMeasurement: latestMeasurement ? this.measurementPublic(latestMeasurement) : null,
       guidance: this.guidanceForDay(dietRows, beverage, latestMeasurement ? this.measurementPublic(latestMeasurement) : null),
     };
@@ -421,10 +495,210 @@ export class Repository {
     if (!result.changes) throw new Error("血尿酸记录不存在");
   }
 
+  treatmentResultPublic(row: any) {
+    return {
+      id: row.id,
+      testName: row.test_name,
+      resultText: row.result_text,
+      numericValue: row.numeric_value,
+      unit: row.unit,
+      referenceRange: row.reference_range,
+      note: row.note,
+      sortOrder: row.sort_order,
+    };
+  }
+
+  treatmentEventPublic(row: any, results: any[] = []) {
+    return {
+      id: row.id,
+      clientId: row.client_id,
+      eventDate: row.event_date,
+      eventTime: row.event_time,
+      eventType: row.event_type,
+      eventTypeLabel: TREATMENT_EVENT_LABELS[row.event_type] || row.event_type,
+      title: row.title || TREATMENT_EVENT_LABELS[row.event_type] || row.event_type,
+      notes: row.notes,
+      symptomSite: row.symptom_site,
+      severity: row.severity,
+      symptomState: row.symptom_state,
+      symptomDescription: row.symptom_description,
+      medicineName: row.medicine_name,
+      dosage: row.dosage,
+      dosageUnit: row.dosage_unit,
+      frequency: row.frequency,
+      startDate: row.start_date,
+      endDate: row.end_date,
+      applicationSite: row.application_site,
+      instructions: row.instructions,
+      facility: row.facility,
+      department: row.department,
+      clinician: row.clinician,
+      testName: row.test_name,
+      reportConclusion: row.report_conclusion,
+      followUpDate: row.follow_up_date,
+      planItem: row.plan_item,
+      otherName: row.other_name,
+      otherDescription: row.other_description,
+      results,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  listTreatmentEvents(fromInput: unknown = null, toInput: unknown = null, typeInput: unknown = null, queryInput: unknown = null) {
+    const clauses = ["e.deleted_at IS NULL"];
+    const params: any[] = [];
+    const from = fromInput ? requireDate(fromInput) : null;
+    const to = toInput ? requireDate(toInput) : null;
+    if (from && to && from > to) throw new Error("治疗记录起始日期不能晚于结束日期");
+    if (from) { clauses.push("e.event_date >= ?"); params.push(from); }
+    if (to) { clauses.push("e.event_date <= ?"); params.push(to); }
+    const eventType = typeInput ? requireTreatmentType(typeInput) : null;
+    if (eventType) { clauses.push("e.event_type = ?"); params.push(eventType); }
+    const query = optionalText(queryInput);
+    if (query) {
+      const pattern = `%${query}%`;
+      clauses.push(`(
+        COALESCE(e.title, '') LIKE ? OR COALESCE(e.notes, '') LIKE ? OR COALESCE(e.symptom_site, '') LIKE ? OR
+        COALESCE(e.symptom_state, '') LIKE ? OR COALESCE(e.symptom_description, '') LIKE ? OR COALESCE(e.medicine_name, '') LIKE ? OR
+        COALESCE(e.dosage, '') LIKE ? OR COALESCE(e.dosage_unit, '') LIKE ? OR COALESCE(e.frequency, '') LIKE ? OR
+        COALESCE(e.application_site, '') LIKE ? OR COALESCE(e.instructions, '') LIKE ? OR COALESCE(e.facility, '') LIKE ? OR
+        COALESCE(e.department, '') LIKE ? OR COALESCE(e.clinician, '') LIKE ? OR COALESCE(e.test_name, '') LIKE ? OR
+        COALESCE(e.report_conclusion, '') LIKE ? OR COALESCE(e.follow_up_date, '') LIKE ? OR COALESCE(e.plan_item, '') LIKE ? OR
+        COALESCE(e.other_name, '') LIKE ? OR COALESCE(e.other_description, '') LIKE ? OR
+        EXISTS (SELECT 1 FROM treatment_event_results tr WHERE tr.event_id = e.id AND (COALESCE(tr.test_name, '') LIKE ? OR COALESCE(tr.result_text, '') LIKE ? OR COALESCE(tr.note, '') LIKE ?))
+      )`);
+      params.push(...Array.from({ length: 23 }, () => pattern));
+    }
+    const rows = this.db.prepare(`
+      SELECT e.* FROM treatment_events e
+      WHERE ${clauses.join(" AND ")}
+      ORDER BY e.event_date DESC, CASE WHEN e.event_time IS NULL OR e.event_time = '' THEN 1 ELSE 0 END ASC, e.event_time DESC, e.created_at DESC
+    `).all(...params);
+    const resultRows = this.db.prepare("SELECT * FROM treatment_event_results WHERE event_id = ? ORDER BY sort_order, created_at");
+    return rows.map((row: any) => this.treatmentEventPublic(row, resultRows.all(row.id).map((result: any) => this.treatmentResultPublic(result))));
+  }
+
+  getTreatmentEvent(id: string, includeDeleted = false) {
+    const row = this.db.prepare(`SELECT * FROM treatment_events WHERE id = ? ${includeDeleted ? "" : "AND deleted_at IS NULL"}`).get(id);
+    if (!row) return null;
+    const results = this.db.prepare("SELECT * FROM treatment_event_results WHERE event_id = ? ORDER BY sort_order, created_at").all(id).map((result: any) => this.treatmentResultPublic(result));
+    return this.treatmentEventPublic(row, results);
+  }
+
+  normalizeTreatmentResults(value: unknown) {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value)) throw new Error("检查结果格式无效");
+    return value.map((row: any, index: number) => {
+      if (!row || typeof row !== "object" || Array.isArray(row)) throw new Error("检查结果格式无效");
+      const resultText = optionalText(row.resultText);
+      const testName = optionalText(row.testName);
+      const numericValue = optionalFinite(row.numericValue, "检查结果数值");
+      const unit = optionalText(row.unit);
+      const referenceRange = optionalText(row.referenceRange);
+      const note = optionalText(row.note);
+      if (!testName && !resultText && numericValue === null && !unit && !referenceRange && !note) return null;
+      return { testName, resultText, numericValue, unit, referenceRange, note, sortOrder: Number.isFinite(Number(row.sortOrder)) ? Number(row.sortOrder) : index };
+    }).filter(Boolean);
+  }
+
+  treatmentFields(payload: any, current: any = null) {
+    const textValue = (key: string, dbKey: string) => payload[key] === undefined ? (current?.[dbKey] ?? null) : optionalText(payload[key]);
+    const dateValue = (key: string, dbKey: string, label: string) => payload[key] === undefined ? (current?.[dbKey] ?? null) : optionalDate(payload[key], label);
+    const eventType = payload.eventType === undefined ? current?.event_type : requireTreatmentType(payload.eventType);
+    if (!eventType) throw new Error("治疗记录类型不能为空");
+    const eventDate = payload.eventDate === undefined ? current?.event_date : requireDate(payload.eventDate);
+    if (!eventDate) throw new Error("治疗记录日期不能为空");
+    const eventTime = payload.eventTime === undefined ? (current?.event_time ?? null) : optionalTime(payload.eventTime);
+    const severity = payload.severity === undefined ? (current?.severity ?? null) : optionalSeverity(payload.severity);
+    const fields: Record<string, any> = { eventDate, eventTime, eventType, severity };
+    for (const [key, dbKey] of TREATMENT_TEXT_FIELDS) fields[dbKey] = textValue(key, dbKey);
+    fields.start_date = dateValue("startDate", "start_date", "开始日期");
+    fields.end_date = dateValue("endDate", "end_date", "结束日期");
+    fields.follow_up_date = dateValue("followUpDate", "follow_up_date", "复诊日期");
+    if (fields.start_date && fields.end_date && fields.start_date > fields.end_date) throw new Error("开始日期不能晚于结束日期");
+    if (current && current.event_type !== eventType) {
+      const allowed = new Set(["title", "notes"]);
+      const allow = (types: string[], keys: string[]) => { if (types.includes(eventType)) keys.forEach((key) => allowed.add(key)); };
+      allow(["flare"], ["symptom_site"]);
+      allow(["flare", "symptom_change"], ["symptom_state", "symptom_description"]);
+      allow(["oral_medication", "topical_medication"], ["medicine_name", "dosage", "dosage_unit", "frequency", "instructions", "start_date", "end_date"]);
+      allow(["topical_medication"], ["application_site"]);
+      allow(["hospital_check", "follow_up"], ["facility", "department"]);
+      allow(["hospital_check"], ["clinician", "test_name", "report_conclusion", "follow_up_date"]);
+      allow(["follow_up"], ["plan_item", "follow_up_date"]);
+      allow(["other"], ["other_name", "other_description"]);
+      if (!["flare", "symptom_change"].includes(eventType)) fields.severity = null;
+      for (const [, dbKey] of TREATMENT_TEXT_FIELDS) if (!allowed.has(dbKey)) fields[dbKey] = null;
+      if (!["oral_medication", "topical_medication"].includes(eventType)) {
+        fields.start_date = null;
+        fields.end_date = null;
+      }
+      if (!["hospital_check", "follow_up"].includes(eventType)) fields.follow_up_date = null;
+    }
+    return fields;
+  }
+
+  saveTreatmentResults(eventId: string, results: any[], at: string) {
+    this.db.prepare("DELETE FROM treatment_event_results WHERE event_id = ?").run(eventId);
+    const insert = this.db.prepare("INSERT INTO treatment_event_results (id, event_id, test_name, result_text, numeric_value, unit, reference_range, note, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    results.forEach((result: any, index: number) => insert.run(uuid(), eventId, result.testName, result.resultText, result.numericValue, result.unit, result.referenceRange, result.note, result.sortOrder ?? index, at, at));
+  }
+
+  createTreatmentEvent(payload: any) {
+    const clientId = String(payload.clientId || uuid());
+    const existing = this.db.prepare("SELECT * FROM treatment_events WHERE client_id = ?").get(clientId);
+    if (existing) return this.getTreatmentEvent(existing.id, true);
+    const fields = this.treatmentFields(payload);
+    const settings = this.settings();
+    if (fields.eventDate > todayInTimezone(settings.timezone) && fields.eventType !== "follow_up" && payload.allowFuture !== true) throw new Error("不能无提示地保存未来治疗记录；确认它确实是计划外记录后再保存");
+    const results = this.normalizeTreatmentResults(payload.results);
+    if (results.length && fields.eventType !== "hospital_check") throw new Error("只有医院检查记录可以填写检查结果");
+    const id = uuid();
+    const at = timestamp();
+    const values = [id, clientId, fields.eventDate, fields.eventTime, fields.eventType, ...Object.keys(fields).filter((key) => !["eventDate", "eventTime", "eventType"].includes(key)).map((key) => fields[key]), at, at];
+    const dbColumns = ["id", "client_id", "event_date", "event_time", "event_type", ...Object.keys(fields).filter((key) => !["eventDate", "eventTime", "eventType"].includes(key)), "created_at", "updated_at"];
+    const run = this.db.transaction(() => {
+      this.db.prepare(`INSERT INTO treatment_events (${dbColumns.join(", ")}) VALUES (${dbColumns.map(() => "?").join(", ")})`).run(...values);
+      this.saveTreatmentResults(id, results, at);
+    });
+    run();
+    return this.getTreatmentEvent(id);
+  }
+
+  updateTreatmentEvent(id: string, payload: any) {
+    const current = this.db.prepare("SELECT * FROM treatment_events WHERE id = ? AND deleted_at IS NULL").get(id);
+    if (!current) throw new Error("治疗记录不存在");
+    const fields = this.treatmentFields(payload, current);
+    const settings = this.settings();
+    if (fields.eventDate > todayInTimezone(settings.timezone) && fields.eventType !== "follow_up" && payload.allowFuture !== true) throw new Error("不能无提示地保存未来治疗记录；确认它确实是计划外记录后再保存");
+    const typeChanged = current.event_type !== fields.eventType;
+    const results = payload.results === undefined && !typeChanged
+      ? this.db.prepare("SELECT test_name AS testName, result_text AS resultText, numeric_value AS numericValue, unit, reference_range AS referenceRange, note, sort_order AS sortOrder FROM treatment_event_results WHERE event_id = ? ORDER BY sort_order, created_at").all(id)
+      : this.normalizeTreatmentResults(payload.results);
+    if (results.length && fields.eventType !== "hospital_check") throw new Error("只有医院检查记录可以填写检查结果");
+    const at = timestamp();
+    const dbFields = { ...fields };
+    delete dbFields.eventDate; delete dbFields.eventTime; delete dbFields.eventType;
+    const assignments = ["event_date = ?", "event_time = ?", "event_type = ?", ...Object.keys(dbFields).map((key) => `${key} = ?`), "updated_at = ?"];
+    const values = [fields.eventDate, fields.eventTime, fields.eventType, ...Object.keys(dbFields).map((key) => dbFields[key]), at, id];
+    const run = this.db.transaction(() => {
+      this.db.prepare(`UPDATE treatment_events SET ${assignments.join(", ")} WHERE id = ?`).run(...values);
+      this.saveTreatmentResults(id, results, at);
+    });
+    run();
+    return this.getTreatmentEvent(id);
+  }
+
+  deleteTreatmentEvent(id: string) {
+    const result = this.db.prepare("UPDATE treatment_events SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL").run(timestamp(), timestamp(), id);
+    if (!result.changes) throw new Error("治疗记录不存在");
+  }
+
   history(fromInput: unknown, toInput: unknown) {
     const from = requireDate(fromInput || addDays(todayInTimezone(this.settings().timezone), -29));
     const to = requireDate(toInput || todayInTimezone(this.settings().timezone));
-    const dates = this.db.prepare(`SELECT entry_date AS date FROM diet_entries WHERE entry_date BETWEEN ? AND ? AND deleted_at IS NULL UNION SELECT entry_date FROM beverage_entries WHERE entry_date BETWEEN ? AND ? AND deleted_at IS NULL UNION SELECT measured_date FROM urate_measurements WHERE measured_date BETWEEN ? AND ? AND deleted_at IS NULL ORDER BY date DESC`).all(from, to, from, to, from, to);
+    const dates = this.db.prepare(`SELECT entry_date AS date FROM diet_entries WHERE entry_date BETWEEN ? AND ? AND deleted_at IS NULL UNION SELECT entry_date FROM beverage_entries WHERE entry_date BETWEEN ? AND ? AND deleted_at IS NULL UNION SELECT measured_date FROM urate_measurements WHERE measured_date BETWEEN ? AND ? AND deleted_at IS NULL UNION SELECT event_date FROM treatment_events WHERE event_date BETWEEN ? AND ? AND deleted_at IS NULL ORDER BY date DESC`).all(from, to, from, to, from, to, from, to);
     return dates.map((row: any) => this.getDay(row.date));
   }
 
@@ -667,11 +941,13 @@ export class Repository {
 
   deletePersonalData() {
     const deletedAt = timestamp();
-    let counts = { dietEntries: 0, beverageEntries: 0, measurements: 0 };
+    let counts = { dietEntries: 0, beverageEntries: 0, measurements: 0, treatmentEvents: 0, treatmentResults: 0 };
     const run = this.db.transaction(() => {
       counts.dietEntries = this.db.prepare("DELETE FROM diet_entries").run().changes;
       counts.beverageEntries = this.db.prepare("DELETE FROM beverage_entries").run().changes;
       counts.measurements = this.db.prepare("DELETE FROM urate_measurements").run().changes;
+      counts.treatmentResults = this.db.prepare("DELETE FROM treatment_event_results").run().changes;
+      counts.treatmentEvents = this.db.prepare("DELETE FROM treatment_events").run().changes;
     });
     run();
     return { deletedAt, counts };

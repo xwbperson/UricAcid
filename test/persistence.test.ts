@@ -22,7 +22,7 @@ test("SQLite data, schema migrations and entry snapshots survive a reopen", () =
   assert.equal(day.summary.low, 20);
   assert.equal(day.summary.high, 30);
   assert.equal(day.dietEntries[0].referenceLow, 20);
-  assert.equal(secondDb.prepare("SELECT version FROM schema_meta").get().version, 2);
+  assert.equal(secondDb.prepare("SELECT version FROM schema_meta").get().version, 3);
   assert.equal(secondDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'audit_events'").get().name, "audit_events");
   assert.ok(secondDb.prepare("PRAGMA table_info(backup_records)").all().some((row: any) => row.name === "replica_status"));
   closeDatabase(secondDb);

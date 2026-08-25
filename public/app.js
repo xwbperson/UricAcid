@@ -5,12 +5,14 @@ const state = {
   day: null,
   stats: null,
   history: null,
+  treatment: null,
   sessions: [],
   currentDate: todayIso(),
   route: location.hash.replace('#', '') || 'today',
   statsPeriod: '30',
   manageTab: 'food',
   manageGroupFilters: { food: '', recipe: '', beverage: '' },
+  treatmentFilters: { from: '', to: '', type: '', q: '' },
   modalContext: null,
 };
 
@@ -49,6 +51,17 @@ function formatUrate(valueUmolL) {
   const value = unit === 'mg/dL' ? Number(valueUmolL) / 59.48 : Number(valueUmolL);
   return `${formatNumber(value, 2)} ${unit === 'mg/dL' ? 'mg/dL' : 'μmol/L'}`;
 }
+
+const treatmentTypes = [
+  ['flare', '痛风发作'],
+  ['hospital_check', '医院检查'],
+  ['oral_medication', '口服药'],
+  ['topical_medication', '外用药'],
+  ['symptom_change', '症状变化'],
+  ['follow_up', '复诊计划'],
+  ['other', '其他'],
+];
+const treatmentTypeLabel = Object.fromEntries(treatmentTypes);
 
 function showToast(message, kind = 'info') {
   const region = $('#toast-region');
@@ -99,6 +112,14 @@ async function loadRouteData() {
     state.day = await api(`/api/day?date=${encodeURIComponent(state.currentDate)}`);
   } else if (state.route === 'history') {
     state.history = (await api(`/api/history?from=${encodeURIComponent(addDays(state.currentDate, -29))}&to=${encodeURIComponent(state.currentDate)}`)).days;
+  } else if (state.route === 'treatment') {
+    const filters = state.treatmentFilters;
+    const params = new URLSearchParams();
+    if (filters.from) params.set('from', filters.from);
+    if (filters.to) params.set('to', filters.to);
+    if (filters.type) params.set('type', filters.type);
+    if (filters.q) params.set('q', filters.q);
+    state.treatment = (await api(`/api/treatment-events?${params.toString()}`)).events;
   } else if (state.route === 'stats') {
     let from = addDays(state.currentDate, -29);
     if (state.statsPeriod === '90') from = addDays(state.currentDate, -89);
@@ -118,6 +139,7 @@ function setRoute(route) {
   });
   const meta = {
     today: ['TODAY / DAILY LOG', '今日'],
+    treatment: ['CARE JOURNAL / TIMELINE', '治疗记录'],
     history: ['HISTORY / DAY BY DAY', '历史'],
     stats: ['STATISTICS / OBSERVATION', '统计'],
     manage: ['MANAGE / YOUR SOURCES', '管理'],
@@ -134,6 +156,7 @@ async function renderCurrentRoute() {
     await loadRouteData();
     const view = $('#view');
     if (state.route === 'today') view.innerHTML = renderToday();
+    if (state.route === 'treatment') view.innerHTML = renderTreatment();
     if (state.route === 'history') view.innerHTML = renderHistory();
     if (state.route === 'stats') view.innerHTML = renderStats();
     if (state.route === 'manage') view.innerHTML = renderManage();
@@ -179,8 +202,39 @@ function actionIcon(kind) {
     recipe: '<path d="M5 6h14M5 12h14M5 18h9" />',
     beverage: '<path d="M5 6h14l-1.4 12H7.4L5 6Zm3 4h6" />',
     measurement: '<path d="m4 17 5-5 3 3 7-8" /><path d="M15 7h4v4" />',
+    treatment: '<path d="M12 4v16M4 12h16" /><circle cx="12" cy="12" r="9" />',
   };
   return `<span class="action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false">${paths[kind]}</svg></span>`;
+}
+
+function treatmentEventTime(event) {
+  return event.eventTime || '时间未填写';
+}
+
+function treatmentEventDetail(event) {
+  const details = [];
+  if (event.eventType === 'flare' && event.symptomSite) details.push(`部位：${event.symptomSite}`);
+  if (event.eventType === 'symptom_change' && event.symptomState) details.push(event.symptomState);
+  if (event.medicineName) details.push(event.medicineName);
+  if (event.dosage) details.push(`${event.dosage}${event.dosageUnit || ''}`);
+  if (event.frequency) details.push(event.frequency);
+  if (event.applicationSite) details.push(`部位：${event.applicationSite}`);
+  if (event.eventType === 'hospital_check' && event.testName) details.push(event.testName);
+  if (event.facility) details.push(event.facility);
+  if (event.reportConclusion) details.push(`结论：${event.reportConclusion}`);
+  if (event.eventType === 'follow_up' && event.planItem) details.push(event.planItem);
+  if (event.followUpDate) details.push(`复诊：${event.followUpDate}`);
+  if (event.severity !== null && event.severity !== undefined) details.push(`程度 ${formatNumber(event.severity, 1)}/10`);
+  if (event.results?.length) details.push(`${event.results.length} 项检查结果`);
+  if (event.symptomDescription) details.push(event.symptomDescription);
+  if (event.instructions) details.push(event.instructions);
+  if (event.eventType === 'other' && event.otherDescription) details.push(event.otherDescription);
+  return details;
+}
+
+function renderTreatmentEventCompact(event) {
+  const detail = treatmentEventDetail(event).slice(0, 3).join(' · ');
+  return `<div class="treatment-compact-row"><span class="treatment-dot treatment-${escapeHtml(event.eventType)}" aria-hidden="true"></span><div><strong>${escapeHtml(event.title)}</strong><small>${escapeHtml(treatmentTypeLabel[event.eventType] || event.eventType)} · ${escapeHtml(treatmentEventTime(event))}${detail ? ` · ${escapeHtml(detail)}` : ''}</small></div><button class="text-button" data-action="edit-treatment" data-id="${escapeHtml(event.id)}">查看</button></div>`;
 }
 
 function renderToday() {
@@ -202,11 +256,13 @@ function renderToday() {
       <article class="hero-card"><span class="card-kicker">BEVERAGE / mL</span><h3>饮品总量</h3><div class="hero-number"><strong>${formatNumber(day.beverage.totalMl, 0)}</strong><span>mL</span></div><div class="hero-foot"><small>纯净水 ${formatNumber(day.beverage.plainWaterMl, 0)} mL<br/>其他饮品 ${formatNumber(day.beverage.otherMl, 0)} mL</small></div></article>
       <article class="hero-card"><span class="card-kicker">MEASUREMENT / LAST</span><h3>最近一次实测</h3><div class="hero-number"><strong>${latest ? formatUrate(latest.valueUmolL).split(' ')[0] : '—'}</strong><span>${latest ? formatUrate(latest.valueUmolL).split(' ').slice(1).join(' ') : ''}</span></div><div class="hero-foot"><small>${latest ? `${formatDate(latest.date, false)} · 真实测量` : '还没有血尿酸记录'}</small></div></article>
     </div>
-    <div class="quick-actions"><button class="action-card" data-action="open-diet" data-kind="food">${actionIcon('food')}<strong>记录食物</strong><small>克数 · 参考范围</small></button><button class="action-card" data-action="open-diet" data-kind="recipe">${actionIcon('recipe')}<strong>记录菜谱</strong><small>成品克数 · 快速选择</small></button><button class="action-card" data-action="open-beverage">${actionIcon('beverage')}<strong>记录饮品</strong><small>容量 · 可选数量</small></button><button class="action-card" data-action="open-measurement">${actionIcon('measurement')}<strong>记录尿酸</strong><small>实测值 · 原始单位</small></button></div>
+     <div class="quick-actions"><button class="action-card" data-action="open-diet" data-kind="food">${actionIcon('food')}<strong>记录食物</strong><small>克数 · 参考范围</small></button><button class="action-card" data-action="open-diet" data-kind="recipe">${actionIcon('recipe')}<strong>记录菜谱</strong><small>成品克数 · 快速选择</small></button><button class="action-card" data-action="open-beverage">${actionIcon('beverage')}<strong>记录饮品</strong><small>容量 · 可选数量</small></button><button class="action-card" data-action="open-measurement">${actionIcon('measurement')}<strong>记录尿酸</strong><small>实测值 · 原始单位</small></button><button class="action-card" data-action="open-treatment">${actionIcon('treatment')}<strong>记录治疗</strong><small>日期 · 过程节点</small></button></div>
     ${renderGuidance(day)}
     <div class="info-strip">本页估算的是膳食嘌呤摄入负荷，不是个人血尿酸升高值，也不用于诊断或治疗。饮品容量单独统计，不抵扣嘌呤负荷。</div>
     <div class="section-heading"><h4>今天的记录</h4><small>${allEntries.length ? `${allEntries.length} 条 · 按时间倒序` : '从第一条记录开始'}</small></div>
-    <div class="record-list">${allEntries.length ? allEntries.map(renderRecordRow).join('') : '<div class="empty-state"><strong>这一天还很安静</strong><span>用上面的入口记录第一条饮食、饮品或尿酸实测。</span></div>'}</div>`;
+     <div class="record-list">${allEntries.length ? allEntries.map(renderRecordRow).join('') : '<div class="empty-state"><strong>这一天还很安静</strong><span>用上面的入口记录第一条饮食、饮品或尿酸实测。</span></div>'}</div>
+     <div class="section-heading treatment-day-heading"><h4>今天的治疗节点</h4><small>${day.treatmentEventCount ? `${day.treatmentEventCount} 条 · 独立时间线` : '还没有节点'}</small></div>
+     <div class="treatment-day-preview">${day.treatmentEvents?.length ? day.treatmentEvents.slice(0, 4).map(renderTreatmentEventCompact).join('') + (day.treatmentEvents.length > 4 ? `<button class="text-button treatment-more" data-action="open-treatment-route">查看全部 ${day.treatmentEvents.length} 条</button>` : '') : '<div class="empty-state"><strong>还没有治疗节点</strong><span>检查、用药和症状变化可以分别记录，之后按类型筛选回看。</span></div>'}</div>`;
 }
 
 function renderRecordRow(entry) {
@@ -215,9 +271,39 @@ function renderRecordRow(entry) {
   return `<div class="record-row"><span class="record-marker urate" aria-hidden="true"></span><div class="record-main"><strong>血尿酸实测</strong><small>${escapeHtml(entry.time || '仅记录日期')} · ${escapeHtml(entry.sourceKind || '来源未填')}</small></div><div class="record-value">${formatUrate(entry.valueUmolL)}<small>原始 ${formatNumber(entry.valueOriginal, 2)} ${escapeHtml(entry.unitOriginal)}</small></div><div class="row-actions"><button data-action="edit-measurement" data-id="${escapeHtml(entry.id)}" aria-label="编辑血尿酸实测">编辑</button><button data-action="delete-measurement" data-id="${escapeHtml(entry.id)}" aria-label="删除血尿酸实测">删除</button></div></div>`;
 }
 
+function renderTreatmentResult(result) {
+  const value = result.resultText || (result.numericValue !== null && result.numericValue !== undefined ? `${formatNumber(result.numericValue, 3)}${result.unit ? ` ${result.unit}` : ''}` : '未填写结果');
+  return `<div class="treatment-result-row"><strong>${escapeHtml(result.testName || '未命名项目')}</strong><span>${escapeHtml(value)}</span>${result.referenceRange ? `<small>参考范围：${escapeHtml(result.referenceRange)}</small>` : ''}${result.note ? `<small>${escapeHtml(result.note)}</small>` : ''}</div>`;
+}
+
+function renderTreatmentEventCard(event) {
+  const details = treatmentEventDetail(event);
+  return `<article class="treatment-event-card"><div class="treatment-event-marker treatment-${escapeHtml(event.eventType)}" aria-hidden="true"><span></span></div><div class="treatment-event-body"><header class="treatment-event-header"><div><span class="treatment-badge treatment-${escapeHtml(event.eventType)}">${escapeHtml(event.eventTypeLabel || treatmentTypeLabel[event.eventType] || event.eventType)}</span><time>${escapeHtml(treatmentEventTime(event))}</time></div><div class="row-actions"><button data-action="edit-treatment" data-id="${escapeHtml(event.id)}" aria-label="编辑${escapeHtml(event.title)}">编辑</button><button data-action="delete-treatment" data-id="${escapeHtml(event.id)}" aria-label="删除${escapeHtml(event.title)}">删除</button></div></header><h4>${escapeHtml(event.title)}</h4>${details.length ? `<p class="treatment-event-details">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join('')}</p>` : ''}${event.results?.length ? `<div class="treatment-results"><strong>检查结果</strong>${event.results.map(renderTreatmentResult).join('')}</div>` : ''}${event.notes ? `<p class="treatment-event-note">${escapeHtml(event.notes)}</p>` : ''}</div></article>`;
+}
+
+function renderTreatmentTimeline(events) {
+  if (!events?.length) {
+    const hasFilters = Object.values(state.treatmentFilters || {}).some(Boolean);
+    return '<div class="empty-state"><strong>' + (hasFilters ? '当前筛选条件下没有记录' : '还没有治疗记录') + '</strong><span>' + (hasFilters ? '可以清除筛选，或调整日期、类型和关键词。' : '从新增治疗记录开始，逐条保存检查、用药和症状变化。') + '</span></div>';
+  }
+  const groups = [];
+  const grouped = new Map();
+  events.forEach((event) => {
+    if (!grouped.has(event.eventDate)) { grouped.set(event.eventDate, []); groups.push([event.eventDate, grouped.get(event.eventDate)]); }
+    grouped.get(event.eventDate).push(event);
+  });
+  return `<div class="treatment-timeline">${groups.map(([date, items]) => `<section class="treatment-day-group"><div class="treatment-date-heading"><time>${escapeHtml(formatDate(date))}</time><span>${items.length} 条节点</span></div><div class="treatment-day-events">${items.map(renderTreatmentEventCard).join('')}</div></section>`).join('')}</div>`;
+}
+
+function renderTreatment() {
+  const filters = state.treatmentFilters;
+  const events = state.treatment || [];
+  return `<div class="page-intro treatment-intro"><div><p class="eyebrow">CARE JOURNAL / FACTS IN ORDER</p><h3>把过程，一步一步留住。</h3><p>每一条都是独立节点；同一天的检查、用药和症状变化不会互相覆盖。这里记录事实，不判断疗效。</p></div><button class="button button-primary" data-action="open-treatment">新增治疗记录</button></div><section class="panel treatment-filter-panel"><div class="panel-header"><div><h4>筛选时间线</h4><p>选择一种类型，就只看这一类过程。</p></div><span class="mono">${events.length} NODES</span></div><form class="treatment-filters" data-form="treatment-filter"><div class="form-field"><label for="treatment-from">开始日期</label><input id="treatment-from" name="from" type="date" value="${escapeHtml(filters.from)}" /></div><div class="form-field"><label for="treatment-to">结束日期</label><input id="treatment-to" name="to" type="date" value="${escapeHtml(filters.to)}" /></div><div class="form-field"><label for="treatment-type">事件类型</label><select id="treatment-type" name="type"><option value="">全部类型</option>${treatmentTypes.map(([value, label]) => `<option value="${value}" ${filters.type === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div><div class="form-field treatment-search-field"><label for="treatment-q">关键词</label><input id="treatment-q" name="q" type="search" value="${escapeHtml(filters.q)}" placeholder="药品、医院、结果或备注" /></div><div class="treatment-filter-actions"><button class="button button-primary" type="submit">应用筛选</button><button class="button button-secondary" type="button" data-action="clear-treatment-filters">清除</button></div></form></section><section class="panel treatment-timeline-panel"><div class="panel-header"><div><h4>${filters.type ? escapeHtml(treatmentTypeLabel[filters.type]) : '全部治疗节点'}</h4><p>${filters.from || filters.to ? `${filters.from || '最早'} 至 ${filters.to || '最新'}` : '按日期倒序，时间未填写的事件仍会保留。'}</p></div><span class="mono">${events.length} 条记录</span></div>${renderTreatmentTimeline(events)}</section><div class="info-strip treatment-boundary">治疗记录只保存你填写的过程信息，不自动解释检查结果，不判断药物是否有效，也不提供开始、停用或调整剂量的建议。</div>`;
+}
+
 function renderHistory() {
   const days = state.history || [];
-  return `<div class="page-intro"><div><p class="eyebrow">DAY BY DAY / HISTORY</p><h3>给过去留一页。</h3><p>未记录的日期显示为空，不会被当作 0。</p></div><div class="date-control"><span>回看到</span><input id="history-date" type="date" value="${escapeHtml(state.currentDate)}" /></div></div><div class="panel"><div class="panel-header"><div><h4>最近 30 天</h4><p>饮食、饮品和实测共用真实日期；点开日期可继续修改。</p></div><span class="mono">${days.length} DAYS WITH DATA</span></div>${days.length ? `<div class="history-list">${days.map((day) => `<button class="history-day" data-action="open-history-day" data-date="${escapeHtml(day.date)}"><div><strong>${formatDate(day.date)}</strong><small>${day.dietEntries.length} 条饮食 · ${day.beverageEntries.length} 条饮品 · ${day.measurements.length} 条实测</small></div><div class="history-day-right"><strong>${formatRange(day.summary.low, day.summary.high)}</strong><small>${formatNumber(day.beverage.totalMl, 0)}mL 饮品</small></div><span>›</span></button>`).join('')}</div>` : '<div class="empty-state"><strong>这段时间还没有记录</strong><span>切换到今日，先留下一条可回看的证据。</span></div>'}</div>`;
+  return `<div class="page-intro"><div><p class="eyebrow">DAY BY DAY / HISTORY</p><h3>给过去留一页。</h3><p>未记录的日期显示为空，不会被当作 0。</p></div><div class="date-control"><span>回看到</span><input id="history-date" type="date" value="${escapeHtml(state.currentDate)}" /></div></div><div class="panel"><div class="panel-header"><div><h4>最近 30 天</h4><p>饮食、饮品、实测和治疗节点共用真实日期；点开日期可继续修改。</p></div><span class="mono">${days.length} DAYS WITH DATA</span></div>${days.length ? `<div class="history-list">${days.map((day) => `<button class="history-day" data-action="open-history-day" data-date="${escapeHtml(day.date)}"><div><strong>${formatDate(day.date)}</strong><small>${day.dietEntries.length} 条饮食 · ${day.beverageEntries.length} 条饮品 · ${day.measurements.length} 条实测 · ${day.treatmentEventCount || 0} 条治疗</small></div><div class="history-day-right"><strong>${formatRange(day.summary.low, day.summary.high)}</strong><small>${formatNumber(day.beverage.totalMl, 0)}mL 饮品</small></div><span>›</span></button>`).join('')}</div>` : '<div class="empty-state"><strong>这段时间还没有记录</strong><span>切换到今日，先留下一条可回看的证据。</span></div>'}</div>`;
 }
 
 function renderStats() {
@@ -357,6 +443,39 @@ function openMeasurementModal(edit = null) {
 
 function updateUratePreview() { const form = $('[data-form="measurement"]'); if (!form) return; const value = Number($('[name="valueOriginal"]', form).value); const unit = $('[name="unitOriginal"]', form).value; $('.urate-preview', form).textContent = value > 0 ? `${formatNumber(value, 2)} ${unit} = ${formatNumber(unit === 'mg/dL' ? value * 59.48 : value, 2)} μmol/L` : '请输入数值'; }
 
+function treatmentValue(edit, key) { return escapeHtml(edit?.[key] ?? ''); }
+
+function renderTreatmentResultInput(result = null) {
+  return `<div class="treatment-result-input" data-treatment-result-row><div class="form-field"><label>检查项目</label><input name="testName" value="${treatmentValue(result, 'testName')}" placeholder="例如：血尿酸" /></div><div class="form-field"><label>结果原文</label><input name="resultText" value="${treatmentValue(result, 'resultText')}" placeholder="保留报告原文" /></div><div class="form-field"><label>数值（可选）</label><input name="numericValue" type="number" step="any" value="${treatmentValue(result, 'numericValue')}" /></div><div class="form-field"><label>单位</label><input name="unit" value="${treatmentValue(result, 'unit')}" placeholder="例如：μmol/L" /></div><div class="form-field"><label>参考范围</label><input name="referenceRange" value="${treatmentValue(result, 'referenceRange')}" placeholder="按报告填写" /></div><div class="form-field"><label>备注</label><input name="note" value="${treatmentValue(result, 'note')}" /></div><button class="icon-button treatment-result-remove" type="button" data-action="remove-treatment-result" aria-label="移除检查结果">×</button></div>`;
+}
+
+function addTreatmentResultRow(result = null) {
+  const root = $('#treatment-result-rows');
+  if (root) root.insertAdjacentHTML('beforeend', renderTreatmentResultInput(result));
+}
+
+function toggleTreatmentSections(form) {
+  if (!form) return;
+  const type = $('[name="eventType"]', form)?.value || '';
+  $$('[data-treatment-types]', form).forEach((section) => {
+    const visible = section.dataset.treatmentTypes.split(',').includes(type);
+    section.hidden = !visible;
+    $$('input, select, textarea', section).forEach((input) => { input.disabled = !visible; });
+  });
+  $$('[data-treatment-only]', form).forEach((field) => {
+    const visible = field.dataset.treatmentOnly === type;
+    field.hidden = !visible;
+    $$('input, select, textarea', field).forEach((input) => { input.disabled = !visible; });
+  });
+}
+
+function openTreatmentModal(edit = null) {
+  const currentType = edit?.eventType || 'flare';
+  openModal(edit ? '修改治疗记录' : '新增治疗记录', '日期和类型必填；其他信息按需要填写。记录事实，不判断疗效。', `<form data-form="treatment" data-id="${escapeHtml(edit?.id || '')}"><div class="form-grid"><div class="form-field"><label for="treatment-event-date">事件日期</label><input id="treatment-event-date" name="eventDate" type="date" value="${treatmentValue(edit, 'eventDate') || escapeHtml(state.currentDate)}" required /></div><div class="form-field"><label for="treatment-event-time">事件时间（可选）</label><input id="treatment-event-time" name="eventTime" type="time" value="${treatmentValue(edit, 'eventTime')}" /></div><div class="form-field full"><label for="treatment-event-type">事件类型</label><select id="treatment-event-type" name="eventType" required>${treatmentTypes.map(([value, label]) => `<option value="${value}" ${currentType === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div><div class="form-field full"><label for="treatment-title">标题（可选）</label><input id="treatment-title" name="title" value="${treatmentValue(edit, 'title')}" placeholder="留空时使用事件类型" /></div></div><div class="treatment-form-section" data-treatment-types="flare,symptom_change"><div class="section-heading"><h4>症状信息</h4><small>可留空</small></div><div class="form-grid"><div class="form-field"><label>变化状态</label><select name="symptomState"><option value="" ${!edit?.symptomState ? 'selected' : ''}>未填写</option><option value="缓解" ${edit?.symptomState === '缓解' ? 'selected' : ''}>缓解</option><option value="无明显变化" ${edit?.symptomState === '无明显变化' ? 'selected' : ''}>无明显变化</option><option value="加重" ${edit?.symptomState === '加重' ? 'selected' : ''}>加重</option><option value="其他" ${edit?.symptomState === '其他' ? 'selected' : ''}>其他</option></select></div><div class="form-field"><label>严重程度（0–10）</label><input name="severity" type="number" min="0" max="10" step="0.1" value="${treatmentValue(edit, 'severity')}" /></div><div class="form-field full"><label>症状描述</label><textarea name="symptomDescription" placeholder="例如：红肿、疼痛、活动受限等">${treatmentValue(edit, 'symptomDescription')}</textarea></div></div></div><div class="treatment-form-section" data-treatment-types="flare"><div class="form-field"><label>发作部位</label><input name="symptomSite" value="${treatmentValue(edit, 'symptomSite')}" placeholder="例如：右脚大拇趾" /></div></div><div class="treatment-form-section" data-treatment-types="oral_medication,topical_medication"><div class="section-heading"><h4>用药信息</h4><small>不建立药品推荐</small></div><div class="form-grid"><div class="form-field full"><label>药品或产品名称</label><input name="medicineName" value="${treatmentValue(edit, 'medicineName')}" placeholder="按包装或医嘱填写" /></div><div class="form-field"><label>剂量</label><input name="dosage" value="${treatmentValue(edit, 'dosage')}" placeholder="例如：1" /></div><div class="form-field"><label>剂量单位</label><input name="dosageUnit" value="${treatmentValue(edit, 'dosageUnit')}" placeholder="例如：片、mg" /></div><div class="form-field"><label>频次</label><input name="frequency" value="${treatmentValue(edit, 'frequency')}" placeholder="例如：每日 2 次" /></div><div class="form-field"><label>开始日期</label><input name="startDate" type="date" value="${treatmentValue(edit, 'startDate')}" /></div><div class="form-field"><label>结束日期</label><input name="endDate" type="date" value="${treatmentValue(edit, 'endDate')}" /></div><div class="form-field full" data-treatment-only="topical_medication"><label>涂抹部位</label><input name="applicationSite" value="${treatmentValue(edit, 'applicationSite')}" placeholder="例如：右脚踝" /></div><div class="form-field full"><label>使用说明 / 医嘱原文</label><textarea name="instructions" placeholder="只记录已知信息，不填写自行推断的建议">${treatmentValue(edit, 'instructions')}</textarea></div></div></div><div class="treatment-form-section" data-treatment-types="hospital_check"><div class="section-heading"><h4>检查信息</h4><small>结果原文优先保留</small></div><div class="form-grid"><div class="form-field"><label>医院 / 机构</label><input name="facility" value="${treatmentValue(edit, 'facility')}" /></div><div class="form-field"><label>科室</label><input name="department" value="${treatmentValue(edit, 'department')}" /></div><div class="form-field"><label>医生（可选）</label><input name="clinician" value="${treatmentValue(edit, 'clinician')}" /></div><div class="form-field"><label>检查名称</label><input name="testName" value="${treatmentValue(edit, 'testName')}" placeholder="例如：血尿酸、肾功能" /></div><div class="form-field full"><label>报告结论（可选）</label><textarea name="reportConclusion" placeholder="按报告或医生说明记录">${treatmentValue(edit, 'reportConclusion')}</textarea></div><div class="form-field"><label>下次复诊日期</label><input name="followUpDate" type="date" value="${treatmentValue(edit, 'followUpDate')}" /></div></div><div class="section-heading treatment-results-heading"><h4>检查结果（可选）</h4><button type="button" class="button button-secondary" data-action="add-treatment-result">＋ 添加结果</button></div><div id="treatment-result-rows"></div></div><div class="treatment-form-section" data-treatment-types="follow_up"><div class="section-heading"><h4>复诊计划</h4><small>未来日期可直接保存</small></div><div class="form-grid"><div class="form-field full"><label>计划事项</label><input name="planItem" value="${treatmentValue(edit, 'planItem')}" placeholder="例如：复查血尿酸和肾功能" /></div><div class="form-field"><label>医院 / 机构</label><input name="facility" value="${treatmentValue(edit, 'facility')}" /></div><div class="form-field"><label>科室</label><input name="department" value="${treatmentValue(edit, 'department')}" /></div><div class="form-field"><label>计划日期</label><input name="followUpDate" type="date" value="${treatmentValue(edit, 'followUpDate')}" /></div></div></div><div class="treatment-form-section" data-treatment-types="other"><div class="section-heading"><h4>其他信息</h4><small>按自己的语言记录</small></div><div class="form-grid"><div class="form-field full"><label>事件名称</label><input name="otherName" value="${treatmentValue(edit, 'otherName')}" /></div><div class="form-field full"><label>详细描述</label><textarea name="otherDescription">${treatmentValue(edit, 'otherDescription')}</textarea></div></div></div><div class="form-field full treatment-notes-field"><label>备注</label><textarea name="notes" placeholder="只记可回看的事实">${treatmentValue(edit, 'notes')}</textarea></div><div class="treatment-form-hint">只有日期和类型是必填项。医院检查可以添加多条结果；空白字段不会被自动补全。</div><div class="modal-actions"><button type="button" class="button button-secondary" data-action="close-modal">取消</button><button type="submit" class="button button-primary">${edit ? '保存修改' : '保存记录'}</button></div></form>`, { type: 'treatment' });
+  if (edit?.results?.length) edit.results.forEach((result) => addTreatmentResultRow(result));
+  toggleTreatmentSections($('[data-form="treatment"]'));
+}
+
 function openLibraryForm(type, editId = null) {
   if (type === 'food') {
     const food = state.bootstrap.foods.find((x) => x.id === editId); const groups = state.bootstrap.groups.foods;
@@ -412,6 +531,23 @@ async function boot() {
   } catch (error) { showGate(error.message); }
 }
 
+function findTreatmentEvent(id) {
+  return (state.treatment || []).find((item) => item.id === id)
+    || (state.day?.treatmentEvents || []).find((item) => item.id === id)
+    || null;
+}
+
+function collectTreatmentResults(form) {
+  return $$('.treatment-result-input', form).map((row) => ({
+    testName: $('[name="testName"]', row)?.value || '',
+    resultText: $('[name="resultText"]', row)?.value || '',
+    numericValue: $('[name="numericValue"]', row)?.value || '',
+    unit: $('[name="unit"]', row)?.value || '',
+    referenceRange: $('[name="referenceRange"]', row)?.value || '',
+    note: $('[name="note"]', row)?.value || '',
+  }));
+}
+
 document.addEventListener('click', async (event) => {
   const button = event.target.closest('[data-action]'); if (!button) return;
   const action = button.dataset.action;
@@ -421,6 +557,8 @@ document.addEventListener('click', async (event) => {
     if (action === 'open-diet') { openDietModal(button.dataset.kind); return; }
     if (action === 'open-beverage') { openBeverageModal(); return; }
     if (action === 'open-measurement') { openMeasurementModal(); return; }
+    if (action === 'open-treatment') { openTreatmentModal(); return; }
+    if (action === 'open-treatment-route') { state.treatmentFilters = { from: state.currentDate, to: state.currentDate, type: '', q: '' }; setRoute('treatment'); return; }
     if (action === 'use-preset') { const form = button.closest('form'); const input = form.querySelector('[name="quantityG"], [name="amountMl"]'); input.value = button.dataset.value; input.dispatchEvent(new Event('input', { bubbles: true })); return; }
     if (action === 'select-picker') { const form = button.closest('form'); $('[name="versionId"]', form).value = button.dataset.versionId; $('.picker-search', form).value = button.dataset.itemName; $('.picker-selected', form).textContent = `已选择：${button.dataset.itemName}`; $$('.picker-option', form).forEach((item) => item.classList.remove('selected')); button.classList.add('selected'); updateDietPreview(); return; }
     if (action === 'edit-diet') { const item = state.day.dietEntries.find((x) => x.id === button.dataset.id); openDietModal(button.dataset.kind, item); return; }
@@ -429,6 +567,11 @@ document.addEventListener('click', async (event) => {
     if (action === 'delete-beverage' && confirm('删除这条饮品记录？')) { await api(`/api/beverage-entries/${button.dataset.id}`, { method: 'DELETE' }); showToast('饮品记录已删除'); await loadData(); await renderCurrentRoute(); return; }
     if (action === 'edit-measurement') { openMeasurementModal(state.day.measurements.find((x) => x.id === button.dataset.id)); return; }
     if (action === 'delete-measurement' && confirm('删除这条血尿酸实测？')) { await api(`/api/measurements/${button.dataset.id}`, { method: 'DELETE' }); showToast('实测记录已删除'); await loadData(); await renderCurrentRoute(); return; }
+    if (action === 'edit-treatment') { const item = findTreatmentEvent(button.dataset.id); if (item) openTreatmentModal(item); return; }
+    if (action === 'delete-treatment' && confirm('删除这条治疗记录？')) { await api('/api/treatment-events/' + button.dataset.id, { method: 'DELETE' }); showToast('治疗记录已删除'); await loadData(); await renderCurrentRoute(); return; }
+    if (action === 'add-treatment-result') { addTreatmentResultRow(); return; }
+    if (action === 'remove-treatment-result') { button.closest('[data-treatment-result-row]')?.remove(); return; }
+    if (action === 'clear-treatment-filters') { state.treatmentFilters = { from: '', to: '', type: '', q: '' }; await renderCurrentRoute(); return; }
     if (action === 'stats-period') { state.statsPeriod = button.dataset.period; await renderCurrentRoute(); return; }
     if (action === 'open-history-day') { state.currentDate = button.dataset.date; setRoute('today'); return; }
     if (action === 'manage-tab') { state.manageTab = button.dataset.tab; renderCurrentRoute(); return; }
@@ -468,6 +611,7 @@ document.addEventListener('change', async (event) => {
   if (event.target.id === 'history-date') { state.currentDate = event.target.value; await renderCurrentRoute(); }
   if (event.target.matches('[data-library-group-filter]')) { state.manageGroupFilters[event.target.dataset.libraryGroupFilter] = event.target.value; await renderCurrentRoute(); }
   if (event.target.matches('[name="mode"]')) toggleRecipeMode();
+  if (event.target.matches('[data-form="treatment"] [name="eventType"]')) toggleTreatmentSections(event.target.closest('[data-form="treatment"]'));
   if (event.target.id === 'restore-file') {
     const file = event.target.files?.[0]; if (!file) return;
     try { const payload = JSON.parse(await file.text()); const preview = await api('/api/backup/restore/preview', { method: 'POST', body: JSON.stringify(payload) }); if (confirm(`将恢复 ${preview.dateRange ? `${preview.dateRange.from} 至 ${preview.dateRange.to}` : '无日期'} 的数据。确认继续？`)) { payload.confirmation = 'RESTORE_URIC_ACID'; await api('/api/backup/restore', { method: 'POST', body: JSON.stringify(payload) }); showGate('恢复完成。为安全起见，请重新输入共享访问口令。'); } } catch (error) { showToast(error.message, 'error'); }
@@ -478,6 +622,11 @@ document.addEventListener('submit', async (event) => {
   const form = event.target; if (!form.matches('form[data-form]')) return; event.preventDefault();
   try {
     const data = Object.fromEntries(new FormData(form).entries());
+    if (form.dataset.form === 'treatment-filter') {
+      state.treatmentFilters = { from: data.from || '', to: data.to || '', type: data.type || '', q: data.q || '' };
+      await renderCurrentRoute();
+      return;
+    }
     if (form.dataset.form === 'diet') {
       const body = { clientId: form.dataset.id ? undefined : crypto.randomUUID(), date: data.date, kind: form.dataset.kind, versionId: data.versionId, quantityG: Number(data.quantityG) };
       const url = form.dataset.id ? `/api/diet-entries/${form.dataset.id}` : '/api/diet-entries'; await api(url, { method: form.dataset.id ? 'PUT' : 'POST', body: JSON.stringify(body) }); closeModal(); showToast(form.dataset.id ? '饮食记录已更新' : '饮食记录已保存'); await loadData(); await renderCurrentRoute(); return;
@@ -488,6 +637,26 @@ document.addEventListener('submit', async (event) => {
     if (form.dataset.form === 'library-beverage') { const body = { ...data, isPlainWater: form.querySelector('[name="isPlainWater"]').checked, containsSugar: form.querySelector('[name="containsSugar"]').checked }; const url = form.dataset.id ? `/api/beverages/${form.dataset.id}` : '/api/beverages'; await api(url, { method: form.dataset.id ? 'PUT' : 'POST', body: JSON.stringify(body) }); closeModal(); showToast('饮品资料已保存'); await loadData(); renderCurrentRoute(); return; }
     if (form.dataset.form === 'library-recipe') { const ingredients = $$('.ingredient-row', form).map((row) => ({ foodVersionId: $('[name="foodVersionId"]', row).value, grams: Number($('[name="grams"]', row).value) })).filter((row) => row.foodVersionId); const body = { name: data.name, groupId: data.groupId, mode: data.mode, finalYieldG: data.finalYieldG ? Number(data.finalYieldG) : null, purineLow: data.purineLow ? Number(data.purineLow) : null, purineHigh: data.purineHigh ? Number(data.purineHigh) : null, notes: data.notes, ingredients }; const url = form.dataset.id ? `/api/recipes/${form.dataset.id}` : '/api/recipes'; await api(url, { method: form.dataset.id ? 'PUT' : 'POST', body: JSON.stringify(body) }); closeModal(); showToast('菜谱资料已保存'); await loadData(); renderCurrentRoute(); return; }
     if (form.dataset.form === 'group') { const kind = form.dataset.kind; const body = { name: data.name }; const url = form.dataset.id ? `/api/groups/${kind}/${form.dataset.id}` : `/api/groups/${data.kind || kind}`; await api(url, { method: form.dataset.id ? 'PUT' : 'POST', body: JSON.stringify(body) }); closeModal(); showToast('分组已保存'); await loadData(); renderCurrentRoute(); return; }
+    if (form.dataset.form === 'treatment') {
+      const eventDate = data.eventDate;
+      const eventType = data.eventType;
+      const isFuture = eventDate > todayIso();
+      if (isFuture && eventType !== 'follow_up' && !confirm('这是未来日期的治疗记录，确定仍要保存吗？')) return;
+      const body = {
+        clientId: form.dataset.id ? undefined : crypto.randomUUID(),
+        ...data,
+        allowFuture: isFuture && eventType !== 'follow_up',
+        results: eventType === 'hospital_check' ? collectTreatmentResults(form) : [],
+        severity: data.severity === '' || data.severity === undefined ? null : Number(data.severity),
+      };
+      const url = form.dataset.id ? '/api/treatment-events/' + form.dataset.id : '/api/treatment-events';
+      await api(url, { method: form.dataset.id ? 'PUT' : 'POST', body: JSON.stringify(body) });
+      closeModal();
+      showToast(form.dataset.id ? '治疗记录已更新' : '治疗记录已保存');
+      await loadData();
+      await renderCurrentRoute();
+      return;
+    }
     if (form.dataset.form === 'source') { await api('/api/sources', { method: 'POST', body: JSON.stringify(data) }); closeModal(); showToast('来源已登记'); await loadData(); renderCurrentRoute(); return; }
     if (form.dataset.form === 'settings') { await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ defaultUrateUnit: data.defaultUrateUnit, waterGoalMl: data.waterGoalMl }) }); showToast('设置已保存'); await loadData(); renderCurrentRoute(); return; }
     if (form.dataset.form === 'portions') { const portions = $$('.portion-input', form).map((input) => ({ kind: input.dataset.kind, value: Number(input.value) })); await api('/api/portions', { method: 'PUT', body: JSON.stringify({ portions }) }); showToast('快捷份量模板已保存'); await loadData(); renderCurrentRoute(); return; }

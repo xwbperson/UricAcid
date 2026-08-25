@@ -77,9 +77,9 @@ function ensureBodyObject(request: Request) {
 
 function findDateRange(data: Record<string, any[]>) {
   const dates: string[] = [];
-  for (const table of ["diet_entries", "beverage_entries", "urate_measurements"]) {
+  for (const table of ["diet_entries", "beverage_entries", "urate_measurements", "treatment_events"]) {
     for (const row of data[table] || []) {
-      const value = row.entry_date || row.measured_date;
+      const value = row.entry_date || row.measured_date || row.event_date;
       if (value) dates.push(value);
     }
   }
@@ -186,6 +186,23 @@ export function createApp(options: AppOptions = {}) {
   app.post("/api/measurements", requireAuth, requireCsrf, (request, response) => response.status(201).json(repository.createMeasurement(ensureBodyObject(request))));
   app.put("/api/measurements/:id", requireAuth, requireCsrf, (request, response) => response.json(repository.updateMeasurement(String(request.params.id), ensureBodyObject(request))));
   app.delete("/api/measurements/:id", requireAuth, requireCsrf, (request, response) => { repository.deleteMeasurement(String(request.params.id)); recordAudit(db, "urate.delete", request, { measurementId: String(request.params.id) }); response.json({ ok: true }); });
+  app.get("/api/treatment-events", requireAuth, (request, response) => response.json({ events: repository.listTreatmentEvents(request.query.from, request.query.to, request.query.type, request.query.q) }));
+  app.post("/api/treatment-events", requireAuth, requireCsrf, (request, response) => {
+    const event = repository.createTreatmentEvent(ensureBodyObject(request));
+    recordAudit(db, "treatment.create", request, { eventId: event.id, eventType: event.eventType });
+    return response.status(201).json(event);
+  });
+  app.put("/api/treatment-events/:id", requireAuth, requireCsrf, (request, response) => {
+    const event = repository.updateTreatmentEvent(String(request.params.id), ensureBodyObject(request));
+    recordAudit(db, "treatment.update", request, { eventId: event.id, eventType: event.eventType });
+    return response.json(event);
+  });
+  app.delete("/api/treatment-events/:id", requireAuth, requireCsrf, (request, response) => {
+    const id = String(request.params.id);
+    repository.deleteTreatmentEvent(id);
+    recordAudit(db, "treatment.delete", request, { eventId: id });
+    return response.json({ ok: true });
+  });
 
   app.post("/api/foods", requireAuth, requireCsrf, (request, response) => response.status(201).json(repository.createFood(ensureBodyObject(request))));
   app.put("/api/foods/:id", requireAuth, requireCsrf, (request, response) => response.json(repository.updateFood(String(request.params.id), ensureBodyObject(request))));

@@ -297,6 +297,55 @@ CREATE TABLE IF NOT EXISTS urate_measurements (
   deleted_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_urate_date ON urate_measurements(measured_date, deleted_at);
+CREATE TABLE IF NOT EXISTS treatment_events (
+  id TEXT PRIMARY KEY,
+  client_id TEXT NOT NULL UNIQUE,
+  event_date TEXT NOT NULL,
+  event_time TEXT,
+  event_type TEXT NOT NULL CHECK (event_type IN ('flare', 'hospital_check', 'oral_medication', 'topical_medication', 'symptom_change', 'follow_up', 'other')),
+  title TEXT,
+  notes TEXT,
+  symptom_site TEXT,
+  severity REAL CHECK (severity IS NULL OR (severity >= 0 AND severity <= 10)),
+  symptom_state TEXT,
+  symptom_description TEXT,
+  medicine_name TEXT,
+  dosage TEXT,
+  dosage_unit TEXT,
+  frequency TEXT,
+  start_date TEXT,
+  end_date TEXT,
+  application_site TEXT,
+  instructions TEXT,
+  facility TEXT,
+  department TEXT,
+  clinician TEXT,
+  test_name TEXT,
+  report_conclusion TEXT,
+  follow_up_date TEXT,
+  plan_item TEXT,
+  other_name TEXT,
+  other_description TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_treatment_events_date ON treatment_events(event_date, event_time, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_treatment_events_type ON treatment_events(event_type, event_date, deleted_at);
+CREATE TABLE IF NOT EXISTS treatment_event_results (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES treatment_events(id) ON DELETE CASCADE,
+  test_name TEXT,
+  result_text TEXT,
+  numeric_value REAL,
+  unit TEXT,
+  reference_range TEXT,
+  note TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_treatment_results_event ON treatment_event_results(event_id, sort_order, created_at);
 CREATE TABLE IF NOT EXISTS backup_records (
   id TEXT PRIMARY KEY,
   backup_type TEXT NOT NULL,
@@ -479,8 +528,8 @@ function migrate(db: DB) {
   ensureColumn(db, "backup_records", "replica_sha256", "TEXT");
   ensureColumn(db, "backup_records", "replica_status", "TEXT");
   const version = db.prepare("SELECT version FROM schema_meta LIMIT 1").get();
-  if (!version) db.prepare("INSERT INTO schema_meta (version) VALUES (2)").run();
-  else if (version.version < 2) db.prepare("UPDATE schema_meta SET version = 2").run();
+  if (!version) db.prepare("INSERT INTO schema_meta (version) VALUES (3)").run();
+  else if (version.version < 3) db.prepare("UPDATE schema_meta SET version = 3").run();
 }
 
 export function openDatabase(filePath = path.join(config.dataDir, "app.db")): DB {
@@ -520,6 +569,8 @@ export function cloneData(db: DB) {
     "diet_entries",
     "beverage_entries",
     "urate_measurements",
+    "treatment_events",
+    "treatment_event_results",
   ];
   const result: Record<string, unknown[]> = {};
   for (const table of tables) result[table] = db.prepare(`SELECT * FROM ${table}`).all();
@@ -530,14 +581,19 @@ export function validateExportPayload(payload: any) {
   if (!payload || payload.format !== "uric-acid-export" || payload.formatVersion !== "1") throw new Error("导出文件格式或版本不受支持");
   if (!payload.data || typeof payload.data !== "object") throw new Error("导出文件缺少数据区");
   const required = ["app_settings", "reference_sources", "food_groups", "foods", "food_versions", "recipe_groups", "recipes", "recipe_versions", "recipe_ingredients", "beverage_groups", "beverages", "portion_presets", "diet_entries", "beverage_entries", "urate_measurements"];
+  const optional = ["treatment_events", "treatment_event_results"];
   for (const table of required) if (!Array.isArray(payload.data[table])) throw new Error(`导出文件缺少 ${table}`);
-  const unknownTables = Object.keys(payload.data).filter((table) => !required.includes(table));
+  for (const table of optional) if (payload.data[table] === undefined) payload.data[table] = [];
+  const unknownTables = Object.keys(payload.data).filter((table) => !required.includes(table) && !optional.includes(table));
   if (unknownTables.length) throw new Error(`导出文件包含不支持的数据表：${unknownTables.join(", ")}`);
+  for (const table of optional) if (!Array.isArray(payload.data[table])) throw new Error(`导出文件中的 ${table} 无效`);
   return true;
 }
 
 export function replaceData(db: DB, data: Record<string, any[]>) {
   const tableOrder = [
+    "treatment_event_results",
+    "treatment_events",
     "diet_entries",
     "beverage_entries",
     "urate_measurements",
