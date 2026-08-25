@@ -19,6 +19,18 @@ const state = {
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
+function syncMobileViewport() {
+  const viewport = window.visualViewport;
+  if (!viewport) return;
+  const bottomInset = Math.max(0, window.innerHeight - (viewport.offsetTop + viewport.height));
+  document.documentElement.style.setProperty('--visual-viewport-bottom-inset', `${bottomInset}px`);
+}
+
+syncMobileViewport();
+window.addEventListener('resize', syncMobileViewport, { passive: true });
+window.visualViewport?.addEventListener('resize', syncMobileViewport, { passive: true });
+window.visualViewport?.addEventListener('scroll', syncMobileViewport, { passive: true });
+
 function setMobileMenuOpen(open) {
   const sidebar = $('.sidebar');
   const backdrop = $('#mobile-menu-backdrop');

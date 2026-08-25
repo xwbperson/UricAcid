@@ -4,6 +4,21 @@ import { chromium } from 'playwright';
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 360, height: 800 }, deviceScaleFactor: 1 });
+await page.addInitScript(() => {
+  const listeners = new Map();
+  const visualViewport = {
+    offsetTop: 0,
+    height: window.innerHeight,
+    addEventListener(type, listener) { listeners.set(type, listener); },
+    removeEventListener(type) { listeners.delete(type); },
+  };
+  Object.defineProperty(window, 'visualViewport', { configurable: true, value: visualViewport });
+  window.__setTestVisualViewport = (height, offsetTop = 0) => {
+    visualViewport.height = height;
+    visualViewport.offsetTop = offsetTop;
+    listeners.get('resize')?.();
+  };
+});
 const smokePassword = process.env.SMOKE_PASSWORD;
 const baseUrl = process.env.SMOKE_BASE_URL || 'http://127.0.0.1:4317';
 assert.ok(smokePassword, 'SMOKE_PASSWORD must be provided by the test runner');
@@ -23,6 +38,13 @@ try {
   await page.locator('.quick-actions .action-card').first().waitFor();
   assert.match(await page.locator('#page-title').innerText(), /今日/);
   assert.equal(await page.locator('.quick-actions .action-card').count(), 5);
+
+  await page.evaluate(() => window.__setTestVisualViewport(740));
+  const visualViewportBottomInset = await page.locator('.bottom-nav').evaluate((nav) => Math.round(window.innerHeight - nav.getBoundingClientRect().bottom));
+  assert.equal(visualViewportBottomInset, 60);
+  await page.evaluate(() => window.__setTestVisualViewport(800));
+  const restoredVisualViewportBottomInset = await page.locator('.bottom-nav').evaluate((nav) => Math.round(window.innerHeight - nav.getBoundingClientRect().bottom));
+  assert.equal(restoredVisualViewportBottomInset, 0);
 
   await page.addStyleTag({ content: '@media (max-width: 900px) { #app { --mobile-safe-area: 34px !important; } }' });
   const bottomNavSafeAreaGeometry = await page.locator('.bottom-nav').evaluate((nav) => {
