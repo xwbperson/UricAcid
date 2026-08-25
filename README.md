@@ -23,9 +23,9 @@ npm run dev
 
 ### Windows temporary local test console
 
-Double-click [`local-test.bat`](local-test.bat) for a persistent English menu. It provides one-click start, stop, restart, status, automated checks, browser smoke testing, password setup, browser opening, and project-folder opening. The server runs in a separate persistent `cmd /k` window; option `2` stops only the process recorded by this script and does not kill unrelated `node.exe` processes.
+Double-click [`local-test.bat`](local-test.bat) for a persistent English menu. It provides one-click start, stop, restart, status, automated checks, browser smoke testing, browser opening, and project-folder opening. The server runs in a separate persistent `cmd /k` window; option `2` stops only the process recorded by this script and does not kill unrelated `node.exe` processes.
 
-The same actions are available from an existing terminal, for example `local-test.bat start`, `local-test.bat stop`, `local-test.bat status`, and `local-test.bat check`. Use option `7` or `local-test.bat setup` for the interactive password setup. The application requires at least 8 password characters; do not hard-code even a temporary password into the script.
+The same actions are available from an existing terminal, for example `local-test.bat start`, `local-test.bat stop`, `local-test.bat status`, `local-test.bat check`, and `local-test.bat browser`. Browser smoke uses the fixed local-only test password embedded in the script; do not use this local test console for production or real shared-access credentials.
 
 生产模式下必须把 `BACKUP_ENCRYPTION_KEY` 放在私密部署配置中；若要满足异盘/异机复制验收，再配置私有挂载目录 `BACKUP_REPLICA_DIR`。这两个值都不能进入 Git、导出文件或日志。
 

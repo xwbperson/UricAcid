@@ -38,10 +38,6 @@ if /I "%~1"=="browser" (
     set "CLI_MODE=1"
     goto run_browser_smoke
 )
-if /I "%~1"=="setup" (
-    set "CLI_MODE=1"
-    goto setup_password
-)
 if /I "%~1"=="open" (
     set "CLI_MODE=1"
     goto open_browser
@@ -68,16 +64,14 @@ echo   [3] Restart local server
 echo   [4] Show server status and health response
 echo   [5] Run build and automated checks
 echo   [6] Run browser smoke test
-echo   [7] Set up or change local access password
-echo   [8] Open local site in the default browser
-echo   [9] Open project folder
+echo   [7] Open local site in the default browser
+echo   [8] Open project folder
 echo   [0] Exit this console
 echo.
-choice /C 1234567890 /N /M "Select an action [1-9,0]: "
-if errorlevel 10 goto exit_console
-if errorlevel 9 goto open_folder
-if errorlevel 8 goto open_browser
-if errorlevel 7 goto setup_password
+choice /C 123456780 /N /M "Select an action [1-8,0]: "
+if errorlevel 9 goto exit_console
+if errorlevel 8 goto open_folder
+if errorlevel 7 goto open_browser
 if errorlevel 6 goto run_browser_smoke
 if errorlevel 5 goto run_checks
 if errorlevel 4 goto show_status
@@ -111,10 +105,21 @@ if not exist "%PROJECT_DIR%\dist\src\server.js" (
     )
 )
 
+pushd "%PROJECT_DIR%"
+for /f "delims=" %%H in ('node -e "const {hashPassword}=require('./dist/src/auth'); process.stdout.write(hashPassword('12345678'))"') do set "TEST_PASSWORD_HASH=%%H"
+popd
+if not defined TEST_PASSWORD_HASH (
+    echo.
+    echo Failed to prepare the local test password hash.
+    set "ACTION_EXIT_CODE=1"
+    goto finish_action
+)
+
 echo.
 echo Starting the server in a persistent window...
 if not exist "%PROJECT_DIR%\data" mkdir "%PROJECT_DIR%\data" >nul 2>&1
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$project=[IO.Path]::GetFullPath('%PROJECT_DIR%'); $data=[IO.Path]::Combine($project,'data'); $command='title %SERVER_TITLE%&&set NODE_ENV=development&&set PORT=%PORT%&&set DATA_DIR=' + $data + '&&npm run start'; $process=Start-Process -FilePath $env:ComSpec -ArgumentList @('/k',$command) -WorkingDirectory $project -PassThru -WindowStyle Normal; Start-Sleep -Milliseconds 1500; $listener=Get-NetTCPConnection -LocalPort %PORT% -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; $serverPid=if($listener){$listener.OwningProcess}else{$process.Id}; [IO.File]::WriteAllText([IO.Path]::Combine($data,'local-test-server.pid'),([string]$process.Id + [Environment]::NewLine + [string]$serverPid))"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$project=[IO.Path]::GetFullPath('%PROJECT_DIR%'); $data=[IO.Path]::Combine($project,'data'); $command='title %SERVER_TITLE%&&set NODE_ENV=development&&set PORT=%PORT%&&set DATA_DIR=' + $data + '&&set SHARED_PASSWORD_HASH=%TEST_PASSWORD_HASH%&&npm run start'; $process=Start-Process -FilePath $env:ComSpec -ArgumentList @('/k',$command) -WorkingDirectory $project -PassThru -WindowStyle Normal; Start-Sleep -Milliseconds 1500; $listener=Get-NetTCPConnection -LocalPort %PORT% -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; $serverPid=if($listener){$listener.OwningProcess}else{$process.Id}; [IO.File]::WriteAllText([IO.Path]::Combine($data,'local-test-server.pid'),([string]$process.Id + [Environment]::NewLine + [string]$serverPid))"
+set "TEST_PASSWORD_HASH="
 if errorlevel 1 (
     echo Failed to open the persistent server window.
     set "ACTION_EXIT_CODE=1"
@@ -200,31 +205,13 @@ if errorlevel 1 (
     goto finish_action
 )
 echo.
-echo Enter the shared password configured for the running local server.
-set "SMOKE_PASSWORD="
-set /P "SMOKE_PASSWORD=Password: "
-if not defined SMOKE_PASSWORD (
-    echo No password was entered. Browser smoke test cancelled.
-    set "ACTION_EXIT_CODE=1"
-    goto clear_smoke_password
-)
+echo Running browser smoke test with the fixed local test password...
+set "SMOKE_PASSWORD=12345678"
 pushd "%PROJECT_DIR%"
 node test/browser-smoke.mjs
 set "ACTION_EXIT_CODE=!ERRORLEVEL!"
 popd
-:clear_smoke_password
 set "SMOKE_PASSWORD="
-goto finish_action
-
-:setup_password
-set "ACTION_EXIT_CODE=0"
-echo.
-echo This runs the interactive password setup and never accepts a password argument.
-pushd "%PROJECT_DIR%"
-call npm run setup:password
-set "ACTION_EXIT_CODE=!ERRORLEVEL!"
-popd
-echo Restart the local server after changing the password.
 goto finish_action
 
 :open_browser
@@ -243,10 +230,11 @@ goto finish_action
 
 :show_help
 echo.
-echo Usage: local-test.bat [start^|stop^|restart^|status^|check^|browser^|setup^|open^|folder]
+echo Usage: local-test.bat [start^|stop^|restart^|status^|check^|browser^|open^|folder]
 echo.
 echo Double-click this file to use the persistent interactive menu.
 echo The local server runs in a separate persistent console window.
+echo Browser smoke uses the fixed local-only test password embedded in this script.
 set "ACTION_EXIT_CODE=0"
 set "CLI_MODE=1"
 goto finish_action
