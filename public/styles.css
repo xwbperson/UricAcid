@@ -302,7 +302,7 @@ input::placeholder, textarea::placeholder { color: #b5b3ab; }
 .picker-option small { color: var(--muted); font-size: 9px; }
 .ingredient-row { min-width: 0; }
 .ingredient-row select { min-width: 0; }
-.modal-backdrop { position: fixed; inset: 0; z-index: 30; background: rgba(14,39,36,.5); display: grid; place-items: end center; padding: 18px; overflow: hidden; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 30; background: rgba(14,39,36,.5); display: grid; place-items: center; padding: 18px; overflow: hidden; }
 .modal { width: min(100%, 680px); max-height: min(92vh, 780px); max-height: min(92dvh, 780px); overflow: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; border-radius: 20px; background: var(--card); box-shadow: 0 30px 80px rgba(0,0,0,.25); padding: 24px; }
 .modal-header { position: sticky; top: -24px; z-index: 1; display: flex; justify-content: space-between; align-items: start; gap: 12px; margin: -24px -24px 20px; padding: 24px 24px 14px; background: var(--card); border-bottom: 1px solid var(--line); }
 .modal-header h3 { margin: 0; font-family: var(--serif); font-size: 22px; letter-spacing: -.04em; }
@@ -381,7 +381,7 @@ input::placeholder, textarea::placeholder { color: #b5b3ab; }
   .form-grid { grid-template-columns: 1fr; }
   .form-field.full { grid-column: auto; }
   .modal-backdrop { padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); }
-  .modal { width: 100%; max-height: min(88vh, 760px); max-height: min(88dvh, 760px); border-radius: 18px 18px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); }
+  .modal { width: 100%; max-height: min(88vh, 760px); max-height: min(88dvh, 760px); border-radius: 18px; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); }
   .modal-header { top: -18px; margin: -18px -16px 18px; padding: 18px 16px 13px; }
   .panel { padding: 17px; }
   input, select, textarea { font-size: 16px; }

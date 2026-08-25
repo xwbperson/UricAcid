@@ -47,9 +47,10 @@ try {
   await page.locator('.modal').waitFor();
   const mobileModalGeometry = await page.locator('.modal').evaluate((node) => {
     const rect = node.getBoundingClientRect();
-    return { height: rect.height, viewportHeight: window.innerHeight };
+    return { height: rect.height, top: rect.top, bottom: rect.bottom, viewportHeight: window.innerHeight };
   });
   assert.equal(mobileModalGeometry.height < mobileModalGeometry.viewportHeight - 20, true);
+  assert.equal(Math.abs((mobileModalGeometry.top + mobileModalGeometry.bottom) / 2 - mobileModalGeometry.viewportHeight / 2) < 2, true);
   await page.locator('.modal-backdrop').click({ position: { x: 4, y: 4 } });
   await page.waitForTimeout(100);
   assert.equal(await page.locator('.modal').count(), 0);
