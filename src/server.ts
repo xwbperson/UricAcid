@@ -24,6 +24,16 @@ import { Repository } from "./repository";
 type AppOptions = { databasePath?: string; publicDir?: string; passwordHash?: string; passwordHashFile?: string };
 
 const loginAttempts = new Map<string, { count: number; firstAt: number; blockedUntil: number }>();
+const MAX_LOGIN_ATTEMPT_KEYS = 4096;
+
+function pruneLoginAttempts(now = Date.now()) {
+  for (const [key, record] of loginAttempts) {
+    if (now - record.firstAt > 15 * 60 * 1000 && record.blockedUntil <= now) loginAttempts.delete(key);
+  }
+  if (loginAttempts.size <= MAX_LOGIN_ATTEMPT_KEYS) return;
+  const oldest = [...loginAttempts.entries()].sort((left, right) => left[1].firstAt - right[1].firstAt);
+  for (const [key] of oldest.slice(0, loginAttempts.size - MAX_LOGIN_ATTEMPT_KEYS)) loginAttempts.delete(key);
+}
 
 function clientAddress(request: Request) {
   return String(request.ip || request.socket.remoteAddress || "unknown").slice(0, 80);
@@ -33,6 +43,7 @@ function loginAllowed(request: Request) {
   const key = clientAddress(request);
   const record = loginAttempts.get(key);
   const now = Date.now();
+  pruneLoginAttempts(now);
   if (!record) return true;
   if (record.blockedUntil > now) return false;
   if (now - record.firstAt > 15 * 60 * 1000) {
@@ -45,6 +56,7 @@ function loginAllowed(request: Request) {
 function loginFailed(request: Request) {
   const key = clientAddress(request);
   const now = Date.now();
+  pruneLoginAttempts(now);
   const record = loginAttempts.get(key) || { count: 0, firstAt: now, blockedUntil: 0 };
   record.count += 1;
   if (record.count >= 5) record.blockedUntil = now + Math.min(15 * 60 * 1000, 1000 * 2 ** Math.min(record.count - 5, 9));
@@ -61,7 +73,7 @@ function asyncRoute(handler: (request: Request, response: Response, next: NextFu
 
 function handleError(error: any, _request: Request, response: Response, _next: NextFunction) {
   const message = error instanceof Error ? error.message : "请求处理失败";
-  const status = /不存在|不能为空|必须|不支持|不能|格式|需要|范围|口令|重置|模板|删除/.test(message) ? 400 : 500;
+  const status = Number.isInteger(error?.statusCode) ? error.statusCode : /不存在|不能为空|必须|不支持|不能|格式|需要|范围|口令|重置|模板|删除/.test(message) ? 400 : 500;
   const database = (response.req.app as any).locals?.db;
   if (database) {
     try { recordAudit(database, "request.failure", _request, { path: _request.path, errorCode: error?.code || message.slice(0, 80) }); } catch { /* auditing must not hide the original failure */ }
@@ -112,7 +124,7 @@ export function createApp(options: AppOptions = {}) {
   app.get("/api/auth/status", (request, response) => {
     const session = (request as any).authSession;
     if (!session) return response.json({ configured: configured(), authenticated: false });
-    return response.json({ configured: configured(), authenticated: true, expiresAt: session.expiresAt, deviceLabel: session.deviceLabel, csrfToken: issueCsrfToken(db, session.sessionId) });
+    return response.json({ configured: configured(), authenticated: true, expiresAt: session.expiresAt, deviceLabel: session.deviceLabel, csrfToken: issueCsrfToken(db, session) });
   });
 
   app.post("/api/auth/login", (request, response) => {
@@ -239,10 +251,10 @@ export function createApp(options: AppOptions = {}) {
   app.get("/api/exports/daily-summary.csv", requireAuth, (request, response) => { recordAudit(db, "backup.export.daily_csv", request); return sendDownload(response, Buffer.from(dailySummaryCsv(repository, request.query.from, request.query.to), "utf8"), `uric-acid-daily-summary-${Date.now()}.csv`, "text/csv; charset=utf-8"); });
   app.post("/api/backup/snapshot", requireAuth, requireCsrf, asyncRoute(async (request, response) => { const result = await createDatabaseSnapshot(db, repository); recordAudit(db, "backup.snapshot.created", request, { status: result.status, replicaStatus: result.replica.status }); return response.status(result.status === "PREPARED" ? 201 : 502).json(result); }));
   app.post("/api/backup/restore/preview", requireAuth, requireCsrf, (request, response) => {
-    const body = ensureBodyObject(request); validateExportPayload(body);
+    const body = ensureBodyObject(request); const integrity = validateExportPayload(body);
     const data = body.data;
     recordAudit(db, "backup.restore.preview", request, { dateRange: findDateRange(data), counts: Object.fromEntries(Object.entries(data).map(([key, value]: any) => [key, value.length])) });
-    response.json({ format: body.format, formatVersion: body.formatVersion, exportedAt: body.exportedAt, counts: Object.fromEntries(Object.entries(data).map(([key, value]: any) => [key, value.length])), dateRange: findDateRange(data) });
+    response.json({ format: body.format, formatVersion: body.formatVersion, exportedAt: body.exportedAt, integrity, counts: Object.fromEntries(Object.entries(data).map(([key, value]: any) => [key, value.length])), dateRange: findDateRange(data) });
   });
   app.post("/api/backup/restore", requireAuth, requireCsrf, asyncRoute(async (request, response) => {
     const body = ensureBodyObject(request); validateExportPayload(body);

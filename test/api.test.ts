@@ -10,6 +10,11 @@ import { hashPassword } from "../src/auth";
 
 const apps: any[] = [];
 const testPassword = crypto.randomBytes(24).toString("base64url");
+
+function refreshExportHash(payload: any) {
+  payload.manifest.dataSha256 = crypto.createHash("sha256").update(Buffer.from(JSON.stringify(payload.data))).digest("hex");
+  return payload;
+}
 const passwordHashFile = path.join(os.tmpdir(), `uric-acid-test-${process.pid}.hash`);
 afterEach(() => {
   for (const app of apps.splice(0)) app.locals.db.close();
@@ -31,6 +36,10 @@ test("auth gate, CSRF and core entry flows work together", async () => {
   assert.equal(login.status, 200);
   const csrf = login.body.csrfToken;
   assert.ok(csrf);
+  const firstTabStatus = await agent.get("/api/auth/status");
+  const secondTabStatus = await agent.get("/api/auth/status");
+  assert.equal(firstTabStatus.body.csrfToken, csrf);
+  assert.equal(secondTabStatus.body.csrfToken, csrf);
   assert.equal((await agent.post("/api/foods").send({ name: "测试食物", basisG: 100, purineLow: 20, purineHigh: 30 })).status, 403);
 
   const bootstrap = await agent.get("/api/bootstrap");
@@ -52,6 +61,8 @@ test("auth gate, CSRF and core entry flows work together", async () => {
   assert.equal(draftUse.status, 400);
   const libraryBeverage = (await agent.post("/api/beverages").set("X-CSRF-Token", csrf).send({ name: "验收饮品", groupId: beverageGroup.id, containsSugar: true })).body;
   assert.equal(libraryBeverage.groupName, "验收饮品分组");
+  const historicalLibraryBeverage = (await agent.post("/api/beverage-entries").set("X-CSRF-Token", csrf).send({ clientId: "archived-bev-client", date: "2026-08-18", beverageId: libraryBeverage.id, amountMl: 330, quantity: 1 })).body;
+  const activeWaterEntry = (await agent.post("/api/beverage-entries").set("X-CSRF-Token", csrf).send({ clientId: "active-water-client", date: "2026-08-18", beverageId: "bev-water", amountMl: 500, quantity: 1 })).body;
 
   const dietPayload = { clientId: "same-client-id", date: "2026-08-24", kind: "food", versionId: createdFood.versionId, quantityG: 150 };
   const firstDiet = await agent.post("/api/diet-entries").set("X-CSRF-Token", csrf).send(dietPayload);
@@ -63,9 +74,15 @@ test("auth gate, CSRF and core entry flows work together", async () => {
   assert.equal(beverage.status, 201);
   const contextDiet = await agent.post("/api/diet-entries").set("X-CSRF-Token", csrf).send({ clientId: "context-client", date: "2026-08-19", kind: "food", versionId: createdFood.versionId, quantityG: 100 });
   assert.equal(contextDiet.status, 201);
-  const measurement = await agent.post("/api/measurements").set("X-CSRF-Token", csrf).send({ clientId: "measure-client", date: "2026-08-20", valueOriginal: 7, unitOriginal: "mg/dL" });
+  const measurement = await agent.post("/api/measurements").set("X-CSRF-Token", csrf).send({ clientId: "measure-client", date: "2026-08-20", valueOriginal: 7, unitOriginal: "mg/dL", acuteFlare: false, referenceLowOriginal: 3, referenceHighOriginal: 7, referenceUnitOriginal: "mg/dL", facility: "=2+2", note: "@unsafe" });
   assert.equal(measurement.status, 201);
   assert.equal(measurement.body.valueUmolL, 416.36);
+  assert.equal(measurement.body.acuteFlare, false);
+  assert.equal(measurement.body.referenceUnitOriginal, "mg/dL");
+  const injectionSafeCsv = await agent.get("/api/exports/urate.csv");
+  assert.equal(injectionSafeCsv.status, 200);
+  assert.match(injectionSafeCsv.text, /'=2\+2/);
+  assert.match(injectionSafeCsv.text, /'@unsafe/);
 
   const day = await agent.get("/api/day?date=2026-08-24");
   assert.equal(day.body.summary.low, 30);
@@ -102,6 +119,10 @@ test("auth gate, CSRF and core entry flows work together", async () => {
   assert.equal(deletedRecipe.status, 200);
   assert.equal(deletedLibraryBeverage.status, 200);
   assert.equal(protectedBeverageDelete.status, 400);
+  const preservedArchivedBeverageEdit = await agent.put(`/api/beverage-entries/${historicalLibraryBeverage.id}`).set("X-CSRF-Token", csrf).send({ date: "2026-08-18", beverageId: libraryBeverage.id, amountMl: 400, quantity: 1 });
+  const rejectedArchivedBeverageSwitch = await agent.put(`/api/beverage-entries/${activeWaterEntry.id}`).set("X-CSRF-Token", csrf).send({ date: "2026-08-18", beverageId: libraryBeverage.id, amountMl: 400, quantity: 1 });
+  assert.equal(preservedArchivedBeverageEdit.status, 200);
+  assert.equal(rejectedArchivedBeverageSwitch.status, 400);
   const afterArchive = await agent.get("/api/bootstrap");
   assert.equal(afterArchive.body.foods.some((item: any) => item.id === createdFood.id), false);
   assert.equal(afterArchive.body.recipes.some((item: any) => item.id === draftRecipe.id), false);
@@ -175,23 +196,31 @@ test("portable export excludes sessions and restore invalidates all devices", as
   const exportResponse = await agent.get("/api/backup/export.json");
   assert.equal(exportResponse.status, 200);
   assert.equal(exportResponse.body.appVersion, "0.1.0");
-  assert.equal(exportResponse.body.schemaVersion, 3);
-  assert.equal(exportResponse.body.manifest.schemaVersion, 3);
+  assert.equal(exportResponse.body.schemaVersion, 4);
+  assert.equal(exportResponse.body.manifest.schemaVersion, 4);
   assert.equal(exportResponse.body.manifest.containsSecrets, false);
   assert.equal("trusted_device_sessions" in exportResponse.body.data, false);
   assert.equal(exportResponse.body.data.treatment_events.length, 1);
   assert.equal(exportResponse.body.data.treatment_event_results.length, 1);
   const preview = await agent.post("/api/backup/restore/preview").set("X-CSRF-Token", login.body.csrfToken).send(exportResponse.body);
   assert.equal(preview.status, 200);
+  assert.equal(preview.body.integrity.verified, true);
+  const tamperedPayload = JSON.parse(JSON.stringify(exportResponse.body));
+  tamperedPayload.data.foods[0].name = "被篡改";
+  const rejectedTamper = await agent.post("/api/backup/restore/preview").set("X-CSRF-Token", login.body.csrfToken).send(tamperedPayload);
+  assert.equal(rejectedTamper.status, 400);
+  assert.match(rejectedTamper.body.error, /完整性校验失败/);
   const invalidPayload = JSON.parse(JSON.stringify(exportResponse.body));
   invalidPayload.data.foods[0].group_id = "missing-group";
   invalidPayload.confirmation = "RESTORE_URIC_ACID";
+  refreshExportHash(invalidPayload);
   const failedRestore = await agent.post("/api/backup/restore").set("X-CSRF-Token", login.body.csrfToken).send(invalidPayload);
   assert.equal(failedRestore.status, 500);
   assert.equal((await agent.get("/api/bootstrap")).status, 200);
   const unsupportedPayload = JSON.parse(JSON.stringify(exportResponse.body));
   unsupportedPayload.data.foods[0].future_field = "must not be silently dropped";
   unsupportedPayload.confirmation = "RESTORE_URIC_ACID";
+  refreshExportHash(unsupportedPayload);
   const unsupportedRestore = await agent.post("/api/backup/restore").set("X-CSRF-Token", login.body.csrfToken).send(unsupportedPayload);
   assert.equal(unsupportedRestore.status, 400);
   assert.equal((await agent.get("/api/bootstrap")).status, 200);

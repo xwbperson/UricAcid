@@ -27,6 +27,16 @@ page.on('pageerror', (error) => consoleErrors.push(error.message));
 page.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
 page.on('dialog', (dialog) => dialog.accept());
 
+async function countUnlabeledVisibleControls(locator) {
+  return locator.evaluate((root) => [...root.querySelectorAll('input:not([type="hidden"]), select, textarea')]
+    .filter((control) => control.getClientRects().length > 0)
+    .filter((control) => {
+      if (control.getAttribute('aria-label') || control.getAttribute('aria-labelledby')) return false;
+      if (control.id && root.querySelector(`label[for="${CSS.escape(control.id)}"]`)) return false;
+      return !control.closest('label');
+    }).length);
+}
+
 try {
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
   assert.equal(await page.locator('#gate').isVisible(), true);
@@ -59,6 +69,10 @@ try {
   assert.equal(bottomNavSafeAreaGeometry.height >= 102, true);
   assert.equal(bottomNavSafeAreaGeometry.labelBottom <= bottomNavSafeAreaGeometry.navBottom, true);
 
+  await page.setViewportSize({ width: 303, height: 800 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
+  await page.setViewportSize({ width: 360, height: 800 });
+
   assert.equal(await page.locator('.sidebar.open').count(), 0);
   await page.locator('#mobile-menu').click();
   await page.locator('.sidebar.open').waitFor();
@@ -80,6 +94,8 @@ try {
   assert.equal(await page.locator('.sidebar.open').count(), 0);
   await page.locator('[data-action="open-treatment"]').click();
   await page.locator('.modal').waitFor();
+  assert.equal(await page.locator('.modal').evaluate((modal) => modal.contains(document.activeElement)), true);
+  assert.equal(await countUnlabeledVisibleControls(page.locator('.modal')), 0);
   const mobileModalGeometry = await page.locator('.modal').evaluate((node) => {
     const rect = node.getBoundingClientRect();
     return { height: rect.height, top: rect.top, bottom: rect.bottom, viewportHeight: window.innerHeight };
@@ -89,16 +105,25 @@ try {
   await page.locator('.modal-backdrop').click({ position: { x: 4, y: 4 } });
   await page.waitForTimeout(100);
   assert.equal(await page.locator('.modal').count(), 0);
+  assert.equal(await page.locator('[data-action="open-treatment"]').evaluate((button) => button === document.activeElement), true);
   await page.locator('.bottom-nav-item[data-route="today"]').click();
   await page.locator('.quick-actions .action-card').first().waitFor();
 
+  const dietCountBeforeDoubleSubmit = await page.locator('[data-action="delete-diet"]').count();
   await page.locator('[data-action="open-diet"][data-kind="food"]').click();
   await page.locator('.modal').waitFor();
+  assert.equal(await page.locator('.modal').evaluate((modal) => modal.contains(document.activeElement)), true);
+  assert.equal(await countUnlabeledVisibleControls(page.locator('.modal')), 0);
   await page.locator('.picker-option').first().click();
   await page.locator('[data-form="diet"] [name="quantityG"]').fill('150');
-  await page.locator('[data-form="diet"] button[type="submit"]').click();
+  await page.locator('[data-form="diet"]').evaluate((form) => {
+    const submitter = form.querySelector('button[type="submit"]');
+    form.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true, submitter }));
+    form.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true, submitter }));
+  });
+  await page.locator('.modal').waitFor({ state: 'detached' });
   await page.waitForTimeout(250);
-  assert.equal(await page.locator('.record-row').count() >= 1, true);
+  assert.equal(await page.locator('[data-action="delete-diet"]').count(), dietCountBeforeDoubleSubmit + 1);
 
   await page.locator('[data-action="open-diet"][data-kind="food"]').click();
   await page.locator('[data-form="diet"] .picker-search').fill('西兰花');
@@ -170,6 +195,7 @@ try {
   await page.waitForTimeout(350);
 
   await page.locator('.bottom-nav-item[data-route="treatment"]').click();
+  await page.locator('.treatment-filter-panel > summary').click();
   await page.locator('[data-form="treatment-filter"] [name="q"]').fill(treatmentKey);
   await page.locator('[data-form="treatment-filter"] button[type="submit"]').click();
   await page.waitForTimeout(350);
@@ -258,6 +284,7 @@ try {
     await page.waitForTimeout(250);
   }
   await page.locator('.bottom-nav-item[data-route="treatment"]').click();
+  await page.locator('.treatment-filter-panel > summary').click();
   await page.locator('[data-form="treatment-filter"] [name="q"]').fill(treatmentKey);
   await page.locator('[data-form="treatment-filter"] button[type="submit"]').click();
   await page.waitForTimeout(250);

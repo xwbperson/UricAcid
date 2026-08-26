@@ -6,6 +6,12 @@ import { config } from "./config";
 
 export type DB = any;
 
+function invalidExport(message: string) {
+  const error: any = new Error(message);
+  error.statusCode = 400;
+  return error;
+}
+
 export const FOOD_GROUP_SEEDS = [
   ["food-grain", "主食/谷薯"],
   ["food-vegetable", "蔬菜"],
@@ -250,6 +256,7 @@ CREATE TABLE IF NOT EXISTS diet_entries (
   quantity_g REAL NOT NULL,
   item_name_snapshot TEXT NOT NULL,
   group_name_snapshot TEXT,
+  group_id_snapshot TEXT,
   reference_low_snapshot REAL,
   reference_high_snapshot REAL,
   reference_basis_g_snapshot REAL,
@@ -527,9 +534,10 @@ function migrate(db: DB) {
   ensureColumn(db, "backup_records", "replica_path", "TEXT");
   ensureColumn(db, "backup_records", "replica_sha256", "TEXT");
   ensureColumn(db, "backup_records", "replica_status", "TEXT");
+  ensureColumn(db, "diet_entries", "group_id_snapshot", "TEXT");
   const version = db.prepare("SELECT version FROM schema_meta LIMIT 1").get();
-  if (!version) db.prepare("INSERT INTO schema_meta (version) VALUES (3)").run();
-  else if (version.version < 3) db.prepare("UPDATE schema_meta SET version = 3").run();
+  if (!version) db.prepare("INSERT INTO schema_meta (version) VALUES (4)").run();
+  else if (version.version < 4) db.prepare("UPDATE schema_meta SET version = 4").run();
 }
 
 export function openDatabase(filePath = path.join(config.dataDir, "app.db")): DB {
@@ -578,16 +586,20 @@ export function cloneData(db: DB) {
 }
 
 export function validateExportPayload(payload: any) {
-  if (!payload || payload.format !== "uric-acid-export" || payload.formatVersion !== "1") throw new Error("导出文件格式或版本不受支持");
-  if (!payload.data || typeof payload.data !== "object") throw new Error("导出文件缺少数据区");
+  if (!payload || payload.format !== "uric-acid-export" || payload.formatVersion !== "1") throw invalidExport("导出文件格式或版本不受支持");
+  if (!payload.data || typeof payload.data !== "object") throw invalidExport("导出文件缺少数据区");
   const required = ["app_settings", "reference_sources", "food_groups", "foods", "food_versions", "recipe_groups", "recipes", "recipe_versions", "recipe_ingredients", "beverage_groups", "beverages", "portion_presets", "diet_entries", "beverage_entries", "urate_measurements"];
   const optional = ["treatment_events", "treatment_event_results"];
-  for (const table of required) if (!Array.isArray(payload.data[table])) throw new Error(`导出文件缺少 ${table}`);
-  for (const table of optional) if (payload.data[table] === undefined) payload.data[table] = [];
+  for (const table of required) if (!Array.isArray(payload.data[table])) throw invalidExport(`导出文件缺少 ${table}`);
   const unknownTables = Object.keys(payload.data).filter((table) => !required.includes(table) && !optional.includes(table));
-  if (unknownTables.length) throw new Error(`导出文件包含不支持的数据表：${unknownTables.join(", ")}`);
-  for (const table of optional) if (!Array.isArray(payload.data[table])) throw new Error(`导出文件中的 ${table} 无效`);
-  return true;
+  if (unknownTables.length) throw invalidExport(`导出文件包含不支持的数据表：${unknownTables.join(", ")}`);
+  for (const table of optional) if (payload.data[table] !== undefined && !Array.isArray(payload.data[table])) throw invalidExport(`导出文件中的 ${table} 无效`);
+  const expected = String(payload.manifest?.dataSha256 || "").toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(expected)) throw invalidExport("导出文件缺少有效的 SHA-256 完整性清单");
+  const actual = crypto.createHash("sha256").update(Buffer.from(JSON.stringify(payload.data))).digest("hex");
+  if (actual !== expected) throw invalidExport("导出文件完整性校验失败；请重新导出或重新传输文件");
+  for (const table of optional) if (payload.data[table] === undefined) payload.data[table] = [];
+  return { verified: true, sha256: actual };
 }
 
 export function replaceData(db: DB, data: Record<string, any[]>) {

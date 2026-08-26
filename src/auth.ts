@@ -7,20 +7,16 @@ import { uuid } from "./db";
 export const DEVICE_COOKIE = "uricacid_device";
 const SESSION_COOKIE_DAYS = Math.max(1, config.sessionDays);
 
-export type AuthContext = {
-  sessionId: string;
-  token: string;
-  csrfToken: string;
-  deviceLabel: string | null;
-  expiresAt: string;
-};
-
 function sha256(value: string) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
 
 function encode(value: Buffer) {
   return value.toString("base64url");
+}
+
+function csrfTokenForDevice(token: string) {
+  return encode(crypto.createHash("sha256").update(`uricacid-csrf:${token}`).digest());
 }
 
 export function hashPassword(password: string) {
@@ -76,21 +72,6 @@ function deviceLabel(request: Request) {
   return userAgent.slice(0, 160);
 }
 
-export function getSession(db: DB, token: string | undefined): AuthContext | null {
-  if (!token) return null;
-  const tokenHash = sha256(token);
-  const row = db.prepare(`
-    SELECT s.*, a.session_generation
-    FROM trusted_device_sessions s CROSS JOIN app_settings a
-    WHERE s.token_hash = ? AND s.revoked_at IS NULL
-      AND s.expires_at > ? AND s.generation = a.session_generation
-    LIMIT 1
-  `).get(tokenHash, new Date().toISOString());
-  if (!row) return null;
-  const csrfToken = row.__csrfToken || "";
-  return { sessionId: row.id, token, csrfToken, deviceLabel: row.device_label, expiresAt: row.expires_at };
-}
-
 export function getSessionFromRequest(db: DB, request: Request) {
   const cookies = parseCookies(request);
   const token = cookies[DEVICE_COOKIE];
@@ -118,7 +99,7 @@ export function getSessionFromRequest(db: DB, request: Request) {
 export function issueSession(db: DB, request: Request, response: Response) {
   const settings = db.prepare("SELECT session_generation FROM app_settings WHERE id = 1").get();
   const token = encode(crypto.randomBytes(32));
-  const csrfToken = encode(crypto.randomBytes(32));
+  const csrfToken = csrfTokenForDevice(token);
   const createdAt = new Date();
   const expiresAt = new Date(createdAt.getTime() + SESSION_COOKIE_DAYS * 24 * 60 * 60 * 1000).toISOString();
   db.prepare(`
@@ -148,9 +129,9 @@ export function revokeAllSessions(db: DB) {
   run();
 }
 
-export function issueCsrfToken(db: DB, sessionId: string) {
-  const token = encode(crypto.randomBytes(32));
-  db.prepare("UPDATE trusted_device_sessions SET csrf_hash = ? WHERE id = ? AND revoked_at IS NULL").run(sha256(token), sessionId);
+export function issueCsrfToken(db: DB, session: { sessionId: string; token: string }) {
+  const token = csrfTokenForDevice(session.token);
+  db.prepare("UPDATE trusted_device_sessions SET csrf_hash = ? WHERE id = ? AND revoked_at IS NULL").run(sha256(token), session.sessionId);
   return token;
 }
 
@@ -171,12 +152,6 @@ export function requireAuth(request: Request, response: Response, next: NextFunc
 export function requireCsrf(request: Request, response: Response, next: NextFunction) {
   if (!csrfValid(request, (request as any).authSession)) return response.status(403).json({ error: "请求校验已过期，请刷新页面后重试", code: "CSRF_INVALID" });
   next();
-}
-
-export function sessionPublic(db: DB, request: Request) {
-  const session = (request as any).authSession;
-  if (!session) return null;
-  return { authenticated: true, expiresAt: session.expiresAt, deviceLabel: session.deviceLabel, csrfToken: issueCsrfToken(db, session.sessionId) };
 }
 
 export { parseCookies };

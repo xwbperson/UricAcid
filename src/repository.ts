@@ -117,6 +117,7 @@ function rowWithSnapshot(row: any) {
     recipeVersionId: row.recipe_version_id,
     name: row.item_name_snapshot,
     groupName: row.group_name_snapshot,
+    groupId: row.group_id_snapshot,
     quantityG: row.quantity_g,
     contributionLow: row.contribution_low,
     contributionHigh: row.contribution_high,
@@ -126,6 +127,7 @@ function rowWithSnapshot(row: any) {
     snapshot: {
       name: row.item_name_snapshot,
       groupName: row.group_name_snapshot,
+      groupId: row.group_id_snapshot,
       referenceLow: row.reference_low_snapshot,
       referenceHigh: row.reference_high_snapshot,
       referenceBasisG: row.reference_basis_g_snapshot,
@@ -304,7 +306,7 @@ export class Repository {
 
   guidanceForDay(dietRows: any[], beverage: { totalMl: number; plainWaterMl: number; otherMl: number }, latestMeasurement: any) {
     const settings = this.settings();
-    const vegetableGrams = round3(dietRows.reduce((sum, row) => sum + (row.kind === "food" && row.group_name_snapshot === "蔬菜" ? row.quantity_g : 0), 0));
+    const vegetableGrams = round3(dietRows.reduce((sum, row) => sum + (row.kind === "food" && (row.group_id_snapshot === "food-vegetable" || (!row.group_id_snapshot && row.group_name_snapshot === "蔬菜")) ? row.quantity_g : 0), 0));
     const vegetableReferenceG = 500;
     const waterMinimumMl = 2000;
     const waterReferenceMl = settings.waterGoalMl || waterMinimumMl;
@@ -359,6 +361,7 @@ export class Repository {
     if (existing) return rowWithSnapshot(existing);
     let source: any;
     let groupName: string | null = null;
+    let groupId: string | null = null;
     let referenceLow: number | null;
     let referenceHigh: number | null;
     let referenceBasis = 100;
@@ -370,6 +373,7 @@ export class Repository {
       if (!source || source.archived_at) throw new Error("食物不存在或已归档");
       itemName = source.name;
       groupName = source.group_name || null;
+      groupId = source.group_id || null;
       referenceLow = asNullableNumber(source.purine_low);
       referenceHigh = asNullableNumber(source.purine_high);
       referenceBasis = source.basis_g;
@@ -379,6 +383,7 @@ export class Repository {
       if (!source || source.archived_at) throw new Error("菜谱不存在或已归档");
       itemName = source.name;
       groupName = source.group_name || null;
+      groupId = source.group_id || null;
       referenceLow = asNullableNumber(source.purine_low);
       referenceHigh = asNullableNumber(source.purine_high);
       referenceBasis = 100;
@@ -389,9 +394,9 @@ export class Repository {
     const createdAt = timestamp();
     const id = uuid();
     this.db.prepare(`
-      INSERT INTO diet_entries (id, client_id, entry_date, kind, food_version_id, recipe_version_id, quantity_g, item_name_snapshot, group_name_snapshot, reference_low_snapshot, reference_high_snapshot, reference_basis_g_snapshot, calculation_version, contribution_low, contribution_high, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, clientId, date, kind, foodVersionId, recipeVersionId, quantityG, itemName, groupName, referenceLow, referenceHigh, referenceBasis, CALCULATION_VERSION, contribution.low, contribution.high, createdAt, createdAt);
+      INSERT INTO diet_entries (id, client_id, entry_date, kind, food_version_id, recipe_version_id, quantity_g, item_name_snapshot, group_name_snapshot, group_id_snapshot, reference_low_snapshot, reference_high_snapshot, reference_basis_g_snapshot, calculation_version, contribution_low, contribution_high, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, clientId, date, kind, foodVersionId, recipeVersionId, quantityG, itemName, groupName, groupId, referenceLow, referenceHigh, referenceBasis, CALCULATION_VERSION, contribution.low, contribution.high, createdAt, createdAt);
     return rowWithSnapshot(this.db.prepare("SELECT * FROM diet_entries WHERE id = ?").get(id));
   }
 
@@ -405,14 +410,17 @@ export class Repository {
       ? this.db.prepare(`SELECT f.*, fg.name AS group_name, fv.* FROM foods f LEFT JOIN food_groups fg ON fg.id = f.group_id JOIN food_versions fv ON fv.id = ? AND fv.food_id = f.id`).get(String(payload.versionId || existing.food_version_id))
       : this.db.prepare(`SELECT r.*, rg.name AS group_name, rv.* FROM recipes r LEFT JOIN recipe_groups rg ON rg.id = r.group_id JOIN recipe_versions rv ON rv.id = ? AND rv.recipe_id = r.id`).get(String(payload.versionId || existing.recipe_version_id));
     if (!source) throw new Error("选择的资料不存在");
-    if (kind === "recipe" && (source.archived_at || asNullableNumber(source.purine_low) === null || asNullableNumber(source.purine_high) === null)) throw new Error("菜谱尚未完成成品重量或参考范围，不能进入正式记录");
-    const low = asNullableNumber(kind === "food" ? source.purine_low : source.purine_low);
-    const high = asNullableNumber(kind === "food" ? source.purine_high : source.purine_high);
+    const requestedVersionId = String(payload.versionId || (kind === "food" ? existing.food_version_id : existing.recipe_version_id));
+    const existingVersionId = String(kind === "food" ? existing.food_version_id : existing.recipe_version_id);
+    if (source.archived_at && requestedVersionId !== existingVersionId) throw new Error("不能把历史记录切换到已归档资料");
+    if (kind === "recipe" && (asNullableNumber(source.purine_low) === null || asNullableNumber(source.purine_high) === null)) throw new Error("菜谱尚未完成成品重量或参考范围，不能进入正式记录");
+    const low = asNullableNumber(source.purine_low);
+    const high = asNullableNumber(source.purine_high);
     const basis = kind === "food" ? source.basis_g : 100;
     const contribution = calculateContribution(quantityG, basis, low, high);
     this.db.prepare(`
-      UPDATE diet_entries SET entry_date = ?, kind = ?, food_version_id = ?, recipe_version_id = ?, quantity_g = ?, item_name_snapshot = ?, group_name_snapshot = ?, reference_low_snapshot = ?, reference_high_snapshot = ?, reference_basis_g_snapshot = ?, contribution_low = ?, contribution_high = ?, updated_at = ? WHERE id = ?
-    `).run(date, kind, kind === "food" ? source.id : null, kind === "recipe" ? source.id : null, quantityG, source.name, source.group_name || null, low, high, basis, contribution.low, contribution.high, timestamp(), id);
+      UPDATE diet_entries SET entry_date = ?, kind = ?, food_version_id = ?, recipe_version_id = ?, quantity_g = ?, item_name_snapshot = ?, group_name_snapshot = ?, group_id_snapshot = ?, reference_low_snapshot = ?, reference_high_snapshot = ?, reference_basis_g_snapshot = ?, contribution_low = ?, contribution_high = ?, updated_at = ? WHERE id = ?
+    `).run(date, kind, kind === "food" ? source.id : null, kind === "recipe" ? source.id : null, quantityG, source.name, source.group_name || null, source.group_id || null, low, high, basis, contribution.low, contribution.high, timestamp(), id);
     return rowWithSnapshot(this.db.prepare("SELECT * FROM diet_entries WHERE id = ?").get(id));
   }
 
@@ -443,8 +451,10 @@ export class Repository {
   updateBeverageEntry(id: string, payload: any) {
     const current = this.db.prepare("SELECT * FROM beverage_entries WHERE id = ? AND deleted_at IS NULL").get(id);
     if (!current) throw new Error("饮品记录不存在");
-    const beverage = this.db.prepare("SELECT * FROM beverages WHERE id = ?").get(String(payload.beverageId || current.beverage_id));
+    const requestedBeverageId = String(payload.beverageId || current.beverage_id);
+    const beverage = this.db.prepare("SELECT * FROM beverages WHERE id = ?").get(requestedBeverageId);
     if (!beverage) throw new Error("饮品不存在");
+    if (beverage.archived_at && requestedBeverageId !== String(current.beverage_id)) throw new Error("不能把历史记录切换到已归档饮品");
     const date = requireDate(payload.date || current.entry_date);
     const servingMl = finitePositive(payload.amountMl ?? current.amount_ml, "毫升数");
     const quantity = Math.max(1, Math.floor(Number(payload.quantity || 1)));

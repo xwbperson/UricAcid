@@ -4,7 +4,8 @@ import { Repository } from "./repository";
 function cell(value: unknown) {
   if (value === null || value === undefined) return "";
   const text = String(value);
-  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+  const spreadsheetSafe = typeof value === "string" && /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+  return /[",\r\n]/.test(spreadsheetSafe) ? `"${spreadsheetSafe.replaceAll('"', '""')}"` : spreadsheetSafe;
 }
 
 function table(headers: string[], rows: unknown[][]) {

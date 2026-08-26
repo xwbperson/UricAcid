@@ -35,7 +35,7 @@ The same actions are available from an existing terminal, for example `local-tes
 npm run check
 ```
 
-这会执行 TypeScript 构建和 11 项服务端测试。浏览器烟测使用 Playwright：
+这会执行 TypeScript 构建和 13 项服务端测试。浏览器烟测使用 Playwright：
 
 ```powershell
 npx playwright install chromium
@@ -45,7 +45,7 @@ $env:SHARED_PASSWORD_HASH = $taskHash
 python C:\Users\xiewe\.codex\skills\webapp-testing\scripts\with_server.py --server "node dist/src/server.js" --port 4317 -- node test/browser-smoke.mjs
 ```
 
-烟测覆盖 360px 视口下的口令门、食物/菜谱/饮品独立分组管理、按分组筛选、常见食物/菜谱种子、参考库条目归档、食物/饮品/尿酸记录逐条删除、统计、管理/设置页，以及 1280px 桌面布局；同时检查两个管理面板独立滚动、无横向溢出和浏览器错误。测试产生的截图位于 `test-artifacts/`，不进入 Git。
+烟测覆盖 360px 视口下的口令门、食物/菜谱/饮品独立分组管理、按分组筛选、常见食物/菜谱种子、参考库条目归档、食物/饮品/尿酸记录逐条删除、统计、管理/设置页，以及 1280px 桌面布局；同时检查重复提交幂等、弹窗焦点与恢复、动态表单标签、两个管理面板独立滚动、无横向溢出和浏览器错误。测试产生的截图位于 `test-artifacts/`，不进入 Git。
 
 ## Docker 部署
 
@@ -72,9 +72,11 @@ $env:CONFIRM_RESTORE = 'RESTORE_URIC_ACID'
 npm run restore:snapshot -- .\data\backups\<snapshot.db.enc>
 ```
 
-恢复前会先创建当前数据库快照；恢复过程在临时库完成完整性检查、清空可信设备并轮换会话世代后再切换，失败时保留原库及恢复前副本。成功的命令行恢复会在目标库留下 `VERIFIED` 恢复证据。网页管理页用于 JSON/ZIP 的预览恢复；CSV 只用于阅读，不代替完整备份。
+恢复前会先创建当前数据库快照；恢复过程在临时库完成完整性检查、清空可信设备并轮换会话世代后再切换，失败时保留原库及恢复前副本。成功的命令行恢复会在目标库留下 `VERIFIED` 恢复证据。网页管理页只接受带 SHA-256 清单校验的完整 JSON 进行预览和恢复；ZIP 用于归档下载，CSV 只用于阅读，两者都不能直接替代网页恢复所需的完整 JSON。
 
 ## 数据与安全边界
+
+部署和使用时必须遵守以下边界；导出文件与生产密钥应分开保存。
 
 - 单一共享数据空间，无用户名、账户或多用户角色。
 - 浏览器只持有随机 HttpOnly、SameSite Cookie；服务端保存凭证哈希并检查撤销、过期和会话世代。
@@ -87,4 +89,4 @@ npm run restore:snapshot -- .\data\backups\<snapshot.db.enc>
 
 ## 交付状态
 
-实现状态和证据边界见 [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)。当前代码与自动化/浏览器烟测已完成，但首批参考库仍标记 `PREPARED`；尚未在用户的真实目标服务器完成 HTTPS、持久化重建、异机迁移恢复和用户手机/电脑验收，因此不能将项目标记为 `VERIFIED` 或 `ACCEPTED`。
+实现状态和证据边界见 [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)，本轮完整审阅、v1 复核与移动端修复证据见 [docs/审阅报告v2.md](docs/审阅报告v2.md)。当前代码与自动化/浏览器烟测已完成，但首批参考库仍标记 `PREPARED`；尚未在用户的真实目标服务器完成 HTTPS、持久化重建、异机迁移恢复和用户手机/电脑验收，因此不能将项目标记为 `VERIFIED` 或 `ACCEPTED`。

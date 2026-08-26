@@ -1,3 +1,14 @@
+const ROUTES = new Set(['today', 'treatment', 'history', 'stats', 'manage']);
+let appTimeZone = 'Asia/Shanghai';
+let modalTrigger = null;
+let mobileMenuTrigger = null;
+let generatedFieldId = 0;
+
+function routeFromHash() {
+  const route = location.hash.replace('#', '');
+  return ROUTES.has(route) ? route : 'today';
+}
+
 const state = {
   csrf: null,
   status: null,
@@ -8,7 +19,8 @@ const state = {
   treatment: null,
   sessions: [],
   currentDate: todayIso(),
-  route: location.hash.replace('#', '') || 'today',
+  route: routeFromHash(),
+  dateInitialized: false,
   statsPeriod: '30',
   manageTab: 'food',
   manageGroupFilters: { food: '', recipe: '', beverage: '' },
@@ -42,13 +54,22 @@ function setMobileMenuOpen(open) {
   menuButton?.setAttribute('aria-expanded', String(open));
   menuButton?.setAttribute('aria-label', open ? '关闭菜单' : '打开菜单');
   document.body.classList.toggle('mobile-menu-open', open);
+  $('#main-content').inert = open;
+  $('.bottom-nav').inert = open;
+  if (open) {
+    mobileMenuTrigger = document.activeElement;
+    requestAnimationFrame(() => $('.sidebar .nav-item')?.focus());
+  } else if (mobileMenuTrigger && document.contains(mobileMenuTrigger)) {
+    mobileMenuTrigger.focus({ preventScroll: true });
+    mobileMenuTrigger = null;
+  }
 }
 
 function closeMobileMenu() { setMobileMenuOpen(false); }
 function toggleMobileMenu() { setMobileMenuOpen(!$('.sidebar')?.classList.contains('open')); }
 
 function todayIso() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
+  return new Intl.DateTimeFormat('en-CA', { timeZone: appTimeZone }).format(new Date());
 }
 
 function escapeHtml(value) {
@@ -78,6 +99,23 @@ function formatUrate(valueUmolL) {
   const unit = state.bootstrap?.settings?.defaultUrateUnit || 'umol/L';
   const value = unit === 'mg/dL' ? Number(valueUmolL) / 59.48 : Number(valueUmolL);
   return `${formatNumber(value, 2)} ${unit === 'mg/dL' ? 'mg/dL' : 'μmol/L'}`;
+}
+
+function preferredUrateUnit() {
+  return state.bootstrap?.settings?.defaultUrateUnit === 'mg/dL' ? 'mg/dL' : 'μmol/L';
+}
+
+function urateValueInPreferredUnit(valueUmolL) {
+  return preferredUrateUnit() === 'mg/dL' ? Number(valueUmolL) / 59.48 : Number(valueUmolL);
+}
+
+function formatUrateDelta(valueUmolL) {
+  const value = urateValueInPreferredUnit(valueUmolL);
+  return `${value >= 0 ? '+' : ''}${formatNumber(value, 2)} ${preferredUrateUnit()}`;
+}
+
+function formatUrateMinMax(minUmolL, maxUmolL) {
+  return `${formatNumber(urateValueInPreferredUnit(minUmolL), 2)} / ${formatNumber(urateValueInPreferredUnit(maxUmolL), 2)} ${preferredUrateUnit()}`;
 }
 
 const treatmentTypes = [
@@ -124,8 +162,13 @@ async function refreshSession() {
 
 async function loadData() {
   $('#save-status').textContent = '同步中…';
-  const [bootstrap, day, sessions] = await Promise.all([
-    api('/api/bootstrap'),
+  const bootstrap = await api('/api/bootstrap');
+  appTimeZone = bootstrap.settings?.timezone || 'Asia/Shanghai';
+  if (!state.dateInitialized) {
+    state.currentDate = todayIso();
+    state.dateInitialized = true;
+  }
+  const [day, sessions] = await Promise.all([
     api(`/api/day?date=${encodeURIComponent(state.currentDate)}`),
     api('/api/auth/sessions'),
   ]);
@@ -158,6 +201,7 @@ async function loadRouteData() {
 }
 
 function setRoute(route) {
+  if (!ROUTES.has(route)) route = 'today';
   state.route = route;
   if (location.hash !== `#${route}`) location.hash = route;
   $$('.nav-item, .bottom-nav-item').forEach((item) => {
@@ -173,16 +217,17 @@ function setRoute(route) {
     manage: ['MANAGE / YOUR SOURCES', '管理'],
   }[route] || ['TODAY / DAILY LOG', '今日'];
   $('#page-kicker').textContent = meta[0]; $('#page-title').textContent = meta[1];
-  $('#main-content')?.focus({ preventScroll: true });
   closeMobileMenu();
+  $('#main-content')?.focus({ preventScroll: true });
   renderCurrentRoute();
 }
 
 async function renderCurrentRoute() {
   if (!state.bootstrap) return;
+  const view = $('#view');
+  view.setAttribute('aria-busy', 'true');
   try {
     await loadRouteData();
-    const view = $('#view');
     if (state.route === 'today') view.innerHTML = renderToday();
     if (state.route === 'treatment') view.innerHTML = renderTreatment();
     if (state.route === 'history') view.innerHTML = renderHistory();
@@ -190,6 +235,9 @@ async function renderCurrentRoute() {
     if (state.route === 'manage') view.innerHTML = renderManage();
   } catch (error) {
     showToast(error.message, 'error');
+    view.innerHTML = `<div class="error-state" role="alert"><strong>当前页面加载失败</strong><span>${escapeHtml(error.message)}。请检查连接后重试。</span><button class="button button-primary" data-action="retry-route">重新加载</button></div>`;
+  } finally {
+    view.removeAttribute('aria-busy');
   }
 }
 
@@ -221,7 +269,10 @@ function renderGuidance(day) {
       : `最近一次实测为 ${formatUrate(latest.valueUmolL)}；仍应结合检验报告、性别、是否有痛风和肾功能等信息，由专业人员判断。若已确诊痛风并正在治疗，目标由医生设定，不能把单次结果当作个人处方。`
     : '还没有血尿酸实测。录入检验报告后，这里会把最近一次实测与需要复核的参考线一起展示。';
   const alerts = guidance.alerts || [];
-  return `<section class="guidance-panel" data-guidance-panel><div class="panel-header"><div><h4>基于最近实测的参考建议</h4><p>按来源资料给出记录提示，不把一次实测或食物估算变成诊断、处方或个人治疗目标。</p></div><span class="mono">GUIDANCE / ${latest ? escapeHtml(formatUrate(latest.valueUmolL)) : 'NO TEST'}</span></div><div class="guidance-grid"><article class="guidance-card guidance-urate"><small>最近一次血尿酸</small><strong>${latest ? escapeHtml(formatUrate(latest.valueUmolL)) : '—'}</strong><span>${latest ? `${formatDate(latest.date, false)} · ${urateReview ? '需要复核' : '已记录'}` : '建议先录入真实报告'}</span><p>${escapeHtml(urateCopy)}</p></article><article class="guidance-card"><small>新鲜蔬菜一般参考</small><strong>≥ ${vegetable.referenceG}g / 日</strong><span>${guidanceStatusLabel(vegetable.status, 'vegetable')} · 直接记录 ${formatNumber(vegetable.loggedG, 0)}g</span><p>指南建议每天保证蔬菜摄入；这里仅统计分组为“蔬菜”的直接食物记录，菜谱不会被假装拆分。</p></article><article class="guidance-card"><small>饮品容量一般参考</small><strong>≥ ${water.referenceMl}mL / 日</strong><span>${guidanceStatusLabel(water.status, 'water')} · 已记录 ${formatNumber(water.loggedMl, 0)}mL</span><p>${water.isCustom ? '这是你在设置中填写的个人记录目标。' : '一般资料建议至少 2000mL；2024 食养指南的 2000–3000mL 仅适用于心、肾功能正常且没有限液要求的情况。'}</p></article></div>${alerts.length ? `<div class="guidance-alerts">${alerts.map((alert) => `<div class="guidance-alert ${escapeHtml(alert.level)}"><strong>${alert.level === 'review' ? '复核提醒' : '接近提醒'}</strong><span>${escapeHtml(alert.message)}</span></div>`).join('')}</div>` : '<div class="guidance-ok">添加记录后，这里会在接近蔬菜或饮水参考量时提示；空白日期不会被当成 0。</div>'}<div class="guidance-footnote">若已经确诊痛风或正在接受降尿酸治疗，血尿酸目标应由医生结合病情确定；不要仅凭 ${escapeHtml(latestAdviceValue)} 自行停药、加药或限水。饮食记录页只提供来源性一般食养参考。</div></section>`;
+  const summaryStatus = alerts.length
+    ? `${alerts.length} 条需要留意的记录提示`
+    : latest ? `最近实测 ${formatUrate(latest.valueUmolL)}` : '尚无实测，记录后再查看';
+  return `<details class="guidance-panel" data-guidance-panel ${alerts.length ? 'open' : ''}><summary class="guidance-summary"><span><strong>记录参考与医学边界</strong><small>${escapeHtml(summaryStatus)}</small></span><span class="details-toggle" aria-hidden="true">展开</span></summary><div class="guidance-content"><div class="panel-header"><div><h4>基于最近实测的参考建议</h4><p>按来源资料给出记录提示，不把一次实测或食物估算变成诊断、处方或个人治疗目标。</p></div><span class="mono">GUIDANCE / ${latest ? escapeHtml(formatUrate(latest.valueUmolL)) : 'NO TEST'}</span></div><div class="guidance-grid"><article class="guidance-card guidance-urate"><small>最近一次血尿酸</small><strong>${latest ? escapeHtml(formatUrate(latest.valueUmolL)) : '—'}</strong><span>${latest ? `${formatDate(latest.date, false)} · ${urateReview ? '需要复核' : '已记录'}` : '建议先录入真实报告'}</span><p>${escapeHtml(urateCopy)}</p></article><article class="guidance-card"><small>新鲜蔬菜一般参考</small><strong>≥ ${vegetable.referenceG}g / 日</strong><span>${guidanceStatusLabel(vegetable.status, 'vegetable')} · 直接记录 ${formatNumber(vegetable.loggedG, 0)}g</span><p>指南建议每天保证蔬菜摄入；这里只统计系统“蔬菜”分组的直接食物记录，菜谱不会被假装拆分。</p></article><article class="guidance-card"><small>饮品容量一般参考</small><strong>≥ ${water.referenceMl}mL / 日</strong><span>${guidanceStatusLabel(water.status, 'water')} · 已记录 ${formatNumber(water.loggedMl, 0)}mL</span><p>${water.isCustom ? '这是你在设置中填写的个人记录目标。' : '一般资料建议至少 2000mL；2024 食养指南的 2000–3000mL 仅适用于心、肾功能正常且没有限液要求的情况。'}</p></article></div>${alerts.length ? `<div class="guidance-alerts">${alerts.map((alert) => `<div class="guidance-alert ${escapeHtml(alert.level)}"><strong>${alert.level === 'review' ? '复核提醒' : '接近提醒'}</strong><span>${escapeHtml(alert.message)}</span></div>`).join('')}</div>` : '<div class="guidance-ok">添加记录后，这里会在接近蔬菜或饮水参考量时提示；空白日期不会被当成 0。</div>'}<div class="guidance-footnote">若已经确诊痛风或正在接受降尿酸治疗，血尿酸目标应由医生结合病情确定；不要仅凭 ${escapeHtml(latestAdviceValue)} 自行停药、加药或限水。饮食记录页只提供来源性一般食养参考。</div></div></details>`;
 }
 
 function actionIcon(kind) {
@@ -284,19 +335,23 @@ function renderToday() {
       <article class="hero-card"><span class="card-kicker">BEVERAGE / mL</span><h3>饮品总量</h3><div class="hero-number"><strong>${formatNumber(day.beverage.totalMl, 0)}</strong><span>mL</span></div><div class="hero-foot"><small>纯净水 ${formatNumber(day.beverage.plainWaterMl, 0)} mL<br/>其他饮品 ${formatNumber(day.beverage.otherMl, 0)} mL</small></div></article>
       <article class="hero-card"><span class="card-kicker">MEASUREMENT / LAST</span><h3>最近一次实测</h3><div class="hero-number"><strong>${latest ? formatUrate(latest.valueUmolL).split(' ')[0] : '—'}</strong><span>${latest ? formatUrate(latest.valueUmolL).split(' ').slice(1).join(' ') : ''}</span></div><div class="hero-foot"><small>${latest ? `${formatDate(latest.date, false)} · 真实测量` : '还没有血尿酸记录'}</small></div></article>
     </div>
-     <div class="quick-actions"><button class="action-card" data-action="open-diet" data-kind="food">${actionIcon('food')}<strong>记录食物</strong><small>克数 · 参考范围</small></button><button class="action-card" data-action="open-diet" data-kind="recipe">${actionIcon('recipe')}<strong>记录菜谱</strong><small>成品克数 · 快速选择</small></button><button class="action-card" data-action="open-beverage">${actionIcon('beverage')}<strong>记录饮品</strong><small>容量 · 可选数量</small></button><button class="action-card" data-action="open-measurement">${actionIcon('measurement')}<strong>记录尿酸</strong><small>实测值 · 原始单位</small></button><button class="action-card" data-action="open-treatment">${actionIcon('treatment')}<strong>记录治疗</strong><small>日期 · 过程节点</small></button></div>
-    ${renderGuidance(day)}
-    <div class="info-strip">本页估算的是膳食嘌呤摄入负荷，不是个人血尿酸升高值，也不用于诊断或治疗。饮品容量单独统计，不抵扣嘌呤负荷。</div>
+     <div class="quick-actions" aria-label="快速记录"><button class="action-card" data-action="open-diet" data-kind="food">${actionIcon('food')}<strong>记录食物</strong><small>克数 · 参考范围</small></button><button class="action-card" data-action="open-beverage">${actionIcon('beverage')}<strong>记录饮品</strong><small>容量 · 可选数量</small></button><button class="action-card" data-action="open-measurement">${actionIcon('measurement')}<strong>记录尿酸</strong><small>实测值 · 原始单位</small></button><button class="action-card" data-action="open-diet" data-kind="recipe">${actionIcon('recipe')}<strong>记录菜谱</strong><small>成品克数 · 快速选择</small></button><button class="action-card" data-action="open-treatment">${actionIcon('treatment')}<strong>记录治疗</strong><small>日期 · 过程节点</small></button></div>
     <div class="section-heading"><h4>今天的记录</h4><small>${allEntries.length ? `${allEntries.length} 条 · 按时间倒序` : '从第一条记录开始'}</small></div>
      <div class="record-list">${allEntries.length ? allEntries.map(renderRecordRow).join('') : '<div class="empty-state"><strong>这一天还很安静</strong><span>用上面的入口记录第一条饮食、饮品或尿酸实测。</span></div>'}</div>
      <div class="section-heading treatment-day-heading"><h4>今天的治疗节点</h4><small>${day.treatmentEventCount ? `${day.treatmentEventCount} 条 · 独立时间线` : '还没有节点'}</small></div>
-     <div class="treatment-day-preview">${day.treatmentEvents?.length ? day.treatmentEvents.slice(0, 4).map(renderTreatmentEventCompact).join('') + (day.treatmentEvents.length > 4 ? `<button class="text-button treatment-more" data-action="open-treatment-route">查看全部 ${day.treatmentEvents.length} 条</button>` : '') : '<div class="empty-state"><strong>还没有治疗节点</strong><span>检查、用药和症状变化可以分别记录，之后按类型筛选回看。</span></div>'}</div>`;
+     <div class="treatment-day-preview">${day.treatmentEvents?.length ? day.treatmentEvents.slice(0, 4).map(renderTreatmentEventCompact).join('') + (day.treatmentEvents.length > 4 ? `<button class="text-button treatment-more" data-action="open-treatment-route">查看全部 ${day.treatmentEvents.length} 条</button>` : '') : '<div class="empty-state"><strong>还没有治疗节点</strong><span>检查、用药和症状变化可以分别记录，之后按类型筛选回看。</span></div>'}</div>
+     ${renderGuidance(day)}
+     <div class="info-strip">本页估算的是膳食嘌呤摄入负荷，不是个人血尿酸升高值，也不用于诊断或治疗。饮品容量单独统计，不抵扣嘌呤负荷。</div>`;
 }
 
 function renderRecordRow(entry) {
   if (entry.type === 'diet') return `<div class="record-row"><span class="record-marker" aria-hidden="true"></span><div class="record-main"><strong>${escapeHtml(entry.name)}</strong><small>${entry.kind === 'recipe' ? '菜谱' : '食物'} · ${formatNumber(entry.quantityG, 1)}g${entry.groupName ? ` · ${escapeHtml(entry.groupName)}` : ''}</small></div><div class="record-value">${formatRange(entry.contributionLow, entry.contributionHigh)}<small>${entry.contributionLow === null ? '暂无估算' : '录入时快照'}</small></div><div class="row-actions"><button data-action="edit-diet" data-id="${escapeHtml(entry.id)}" data-kind="${escapeHtml(entry.kind)}" aria-label="编辑">编辑</button><button data-action="delete-diet" data-id="${escapeHtml(entry.id)}" aria-label="删除">删除</button></div></div>`;
   if (entry.type === 'beverage') return `<div class="record-row"><span class="record-marker beverage" aria-hidden="true"></span><div class="record-main"><strong>${escapeHtml(entry.name)}</strong><small>饮品 · ${entry.quantity > 1 ? `${entry.amountMl / entry.quantity}mL × ${entry.quantity}` : `${entry.amountMl}mL`}</small></div><div class="record-value">${formatNumber(entry.amountMl, 0)}<small>mL · 不抵扣嘌呤</small></div><div class="row-actions"><button data-action="edit-beverage" data-id="${escapeHtml(entry.id)}" aria-label="编辑饮品记录">编辑</button><button data-action="delete-beverage" data-id="${escapeHtml(entry.id)}" aria-label="删除饮品记录">删除</button></div></div>`;
-  return `<div class="record-row"><span class="record-marker urate" aria-hidden="true"></span><div class="record-main"><strong>血尿酸实测</strong><small>${escapeHtml(entry.time || '仅记录日期')} · ${escapeHtml(entry.sourceKind || '来源未填')}</small></div><div class="record-value">${formatUrate(entry.valueUmolL)}<small>原始 ${formatNumber(entry.valueOriginal, 2)} ${escapeHtml(entry.unitOriginal)}</small></div><div class="row-actions"><button data-action="edit-measurement" data-id="${escapeHtml(entry.id)}" aria-label="编辑血尿酸实测">编辑</button><button data-action="delete-measurement" data-id="${escapeHtml(entry.id)}" aria-label="删除血尿酸实测">删除</button></div></div>`;
+  const measurementContext = [entry.time || '仅记录日期', entry.sourceKind || '来源未填', entry.acuteFlare === true ? '急性发作期' : entry.acuteFlare === false ? '非急性发作期' : '发作状态未填'];
+  const reference = entry.referenceLowOriginal !== null || entry.referenceHighOriginal !== null
+    ? ` · 报告参考 ${formatNumber(entry.referenceLowOriginal, 2)}–${formatNumber(entry.referenceHighOriginal, 2)} ${entry.referenceUnitOriginal === 'mg/dL' ? 'mg/dL' : 'μmol/L'}`
+    : '';
+  return `<div class="record-row"><span class="record-marker urate" aria-hidden="true"></span><div class="record-main"><strong>血尿酸实测</strong><small>${measurementContext.map(escapeHtml).join(' · ')}</small></div><div class="record-value">${formatUrate(entry.valueUmolL)}<small>原始 ${formatNumber(entry.valueOriginal, 2)} ${escapeHtml(entry.unitOriginal)}${reference}</small></div><div class="row-actions"><button data-action="edit-measurement" data-id="${escapeHtml(entry.id)}" aria-label="编辑血尿酸实测">编辑</button><button data-action="delete-measurement" data-id="${escapeHtml(entry.id)}" aria-label="删除血尿酸实测">删除</button></div></div>`;
 }
 
 function renderTreatmentResult(result) {
@@ -326,7 +381,11 @@ function renderTreatmentTimeline(events) {
 function renderTreatment() {
   const filters = state.treatmentFilters;
   const events = state.treatment || [];
-  return `<div class="page-intro treatment-intro"><div><p class="eyebrow">CARE JOURNAL / FACTS IN ORDER</p><h3>把过程，一步一步留住。</h3><p>每一条都是独立节点；同一天的检查、用药和症状变化不会互相覆盖。这里记录事实，不判断疗效。</p></div><button class="button button-primary" data-action="open-treatment">新增治疗记录</button></div><section class="panel treatment-filter-panel"><div class="panel-header"><div><h4>筛选时间线</h4><p>选择一种类型，就只看这一类过程。</p></div><span class="mono">${events.length} NODES</span></div><form class="treatment-filters" data-form="treatment-filter"><div class="form-field"><label for="treatment-from">开始日期</label><input id="treatment-from" name="from" type="date" value="${escapeHtml(filters.from)}" /></div><div class="form-field"><label for="treatment-to">结束日期</label><input id="treatment-to" name="to" type="date" value="${escapeHtml(filters.to)}" /></div><div class="form-field"><label for="treatment-type">事件类型</label><select id="treatment-type" name="type"><option value="">全部类型</option>${treatmentTypes.map(([value, label]) => `<option value="${value}" ${filters.type === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div><div class="form-field treatment-search-field"><label for="treatment-q">关键词</label><input id="treatment-q" name="q" type="search" value="${escapeHtml(filters.q)}" placeholder="药品、医院、结果或备注" /></div><div class="treatment-filter-actions"><button class="button button-primary" type="submit">应用筛选</button><button class="button button-secondary" type="button" data-action="clear-treatment-filters">清除</button></div></form></section><section class="panel treatment-timeline-panel"><div class="panel-header"><div><h4>${filters.type ? escapeHtml(treatmentTypeLabel[filters.type]) : '全部治疗节点'}</h4><p>${filters.from || filters.to ? `${filters.from || '最早'} 至 ${filters.to || '最新'}` : '按日期倒序，时间未填写的事件仍会保留。'}</p></div><span class="mono">${events.length} 条记录</span></div>${renderTreatmentTimeline(events)}</section><div class="info-strip treatment-boundary">治疗记录只保存你填写的过程信息，不自动解释检查结果，不判断药物是否有效，也不提供开始、停用或调整剂量的建议。</div>`;
+  const hasFilters = Object.values(filters).some(Boolean);
+  const filterSummary = hasFilters
+    ? [filters.type ? treatmentTypeLabel[filters.type] : '全部类型', filters.from || filters.to ? `${filters.from || '最早'} 至 ${filters.to || '最新'}` : '', filters.q ? `关键词：${filters.q}` : ''].filter(Boolean).join(' · ')
+    : '按日期、类型或关键词缩小范围';
+  return `<div class="page-intro treatment-intro"><div><p class="eyebrow">CARE JOURNAL / FACTS IN ORDER</p><h3>把过程，一步一步留住。</h3><p>每一条都是独立节点；同一天的检查、用药和症状变化不会互相覆盖。这里记录事实，不判断疗效。</p></div><button class="button button-primary" data-action="open-treatment">新增治疗记录</button></div><details class="panel treatment-filter-panel" ${hasFilters ? 'open' : ''}><summary class="filter-summary"><span><strong>筛选时间线</strong><small>${escapeHtml(filterSummary)}</small></span><span>${events.length} 条</span></summary><form class="treatment-filters" data-form="treatment-filter"><div class="form-field"><label for="treatment-from">开始日期</label><input id="treatment-from" name="from" type="date" value="${escapeHtml(filters.from)}" /></div><div class="form-field"><label for="treatment-to">结束日期</label><input id="treatment-to" name="to" type="date" value="${escapeHtml(filters.to)}" /></div><div class="form-field"><label for="treatment-type">事件类型</label><select id="treatment-type" name="type"><option value="">全部类型</option>${treatmentTypes.map(([value, label]) => `<option value="${value}" ${filters.type === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div><div class="form-field treatment-search-field"><label for="treatment-q">关键词</label><input id="treatment-q" name="q" type="search" value="${escapeHtml(filters.q)}" placeholder="药品、医院、结果或备注" /></div><div class="treatment-filter-actions"><button class="button button-primary" type="submit">应用筛选</button><button class="button button-secondary" type="button" data-action="clear-treatment-filters">清除筛选</button></div></form></details><section class="panel treatment-timeline-panel"><div class="panel-header"><div><h4>${filters.type ? escapeHtml(treatmentTypeLabel[filters.type]) : '全部治疗节点'}</h4><p>${filters.from || filters.to ? `${filters.from || '最早'} 至 ${filters.to || '最新'}` : '按日期倒序，时间未填写的事件仍会保留。'}</p></div><span class="mono">${events.length} 条记录</span></div>${renderTreatmentTimeline(events)}</section><div class="info-strip treatment-boundary">治疗记录只保存你填写的过程信息，不自动解释检查结果，不判断药物是否有效，也不提供开始、停用或调整剂量的建议。</div>`;
 }
 
 function renderHistory() {
@@ -341,11 +400,12 @@ function renderStats() {
   const previous = stats.urateStats?.previous;
   const diff = latest && previous ? latest.valueUmolL - previous.valueUmolL : null;
   const interval = latest && previous ? Math.round((Date.parse(`${latest.date}T00:00:00Z`) - Date.parse(`${previous.date}T00:00:00Z`)) / 86400000) : null;
+  const intervalLabel = interval === 0 ? '同日' : interval === null ? '' : `${interval}天`;
   const dailyRows = stats.daily || [];
   const beverageTotal = dailyRows.reduce((sum, row) => sum + (row.beverageTotalMl || 0), 0);
   const plainWaterTotal = dailyRows.reduce((sum, row) => sum + (row.plainWaterMl || 0), 0);
   const otherBeverageTotal = beverageTotal - plainWaterTotal;
-  return `<div class="page-intro"><div><p class="eyebrow">OBSERVATION / NO CAUSAL CLAIMS</p><h3>看见变化，也保留边界。</h3><p>独立展示实测、膳食负荷和饮品容量；同期记录不能证明因果。</p></div><div class="period-switch">${[['30', '近 30 天'], ['90', '近 90 天'], ['365', '近 1 年'], ['all', '全部']].map(([value, label]) => `<button class="chip ${state.statsPeriod === value ? 'active' : ''}" data-action="stats-period" data-period="${value}">${label}</button>`).join('')}</div></div><div class="stat-layout"><section class="panel"><div class="panel-header"><div><h4>血尿酸实测趋势</h4><p>规范单位先统一为 μmol/L；记录详情仍保留原始单位。</p></div><span class="mono">${measurements.length} MEASUREMENTS</span></div><div class="metric-trio metrics-wide"><div><small>最新</small><strong>${latest ? formatUrate(latest.valueUmolL) : '—'}</strong></div><div><small>上一次 / 间隔</small><strong>${previous ? `${formatUrate(previous.valueUmolL)} · ${interval}天` : '—'}</strong></div><div><small>两次差值</small><strong>${diff === null ? '—' : `${diff >= 0 ? '+' : ''}${formatNumber(diff, 2)} μmol/L`}</strong></div><div><small>记录数</small><strong>${stats.urateStats?.count || 0}</strong></div><div><small>最小 / 最大</small><strong>${stats.urateStats?.min === null || stats.urateStats?.min === undefined ? '—' : `${formatNumber(stats.urateStats.min, 1)} / ${formatNumber(stats.urateStats.max, 1)}`}</strong></div><div><small>中位数</small><strong>${stats.urateStats?.median === null || stats.urateStats?.median === undefined ? '—' : formatUrate(stats.urateStats.median)}</strong></div></div>${renderLineChart(measurements)}<div class="section-heading"><h4>可读数据表</h4><small>按测量日期，不补齐缺测日</small></div>${measurements.length ? `<table class="data-table"><caption class="sr-only">血尿酸实测数据</caption><thead><tr><th scope="col">日期</th><th scope="col">原始值</th><th scope="col">规范值</th></tr></thead><tbody>${measurements.slice().reverse().map((row) => `<tr><td>${formatDate(row.date, false)}</td><td>${formatNumber(row.valueOriginal, 2)} ${escapeHtml(row.unitOriginal)}</td><td>${formatNumber(row.valueUmolL, 2)} μmol/L</td></tr>`).join('')}</tbody></table>` : '<div class="chart-empty">还没有实测数据</div>'}</section><section class="panel"><div class="panel-header"><div><h4>饮食与饮品趋势</h4><p>只呈现实际有记录的天；不把空白当作 0。</p></div><span class="mono">${stats.recordedDays || 0} / ${stats.totalDays || 0} DAYS</span></div><div class="metric-trio metrics-wide"><div><small>区间饮品</small><strong>${formatNumber(beverageTotal, 0)}mL</strong></div><div><small>纯净水</small><strong>${formatNumber(plainWaterTotal, 0)}mL</strong></div><div><small>其他饮品</small><strong>${formatNumber(otherBeverageTotal, 0)}mL</strong></div></div>${renderBarChart(stats.daily)}<div class="section-heading"><h4>日数据</h4><small>嘌呤范围 · 饮品总量 · 纯净水 · 其他饮品</small></div>${stats.daily?.length ? `<table class="data-table"><caption class="sr-only">每日饮食与饮品数据</caption><thead><tr><th scope="col">日期</th><th scope="col">嘌呤</th><th scope="col">饮品</th><th scope="col">纯水</th><th scope="col">其他</th></tr></thead><tbody>${stats.daily.slice().reverse().map((row) => `<tr><td>${formatDate(row.date, false)}</td><td>${formatRange(row.purineLow, row.purineHigh)}</td><td>${formatNumber(row.beverageTotalMl, 0)}mL</td><td>${formatNumber(row.plainWaterMl, 0)}mL</td><td>${formatNumber((row.beverageTotalMl || 0) - (row.plainWaterMl || 0), 0)}mL</td></tr>`).join('')}</tbody></table>` : '<div class="chart-empty">还没有饮食或饮品趋势</div>'}</section></div><section class="panel" style="margin-top:14px"><div class="panel-header"><div><h4>同期记录对照</h4><p>每次实测前的 1 / 3 / 7 个完整日；只展示同一时间窗中的记录。</p></div><span class="mono">CONTEXT ONLY</span></div>${stats.comparisons?.length ? `<div class="comparison-list">${stats.comparisons.slice().reverse().map((item) => `<div class="comparison-row"><header><span>${formatDate(item.measurement.date)} 实测 ${formatUrate(item.measurement.valueUmolL)}</span><span>不能证明因果</span></header><div class="comparison-windows">${item.windows.map((window) => `<div class="comparison-window"><small>前 ${window.days} 日 · ${window.totalCount ? window.coverage : '无饮食记录'}</small><strong>${formatRange(window.low, window.high)}</strong><small>${formatNumber(window.beverageTotalMl, 0)}mL · 纯水 ${formatNumber(window.plainWaterMl, 0)}mL · ${window.recordedDays} 天有记录</small></div>`).join('')}</div></div>`).join('')}</div>` : '<div class="empty-state"><strong>有了尿酸实测，才会出现同期回看</strong><span>这个区域不会替你生成因果结论。</span></div>'}</section><div class="info-strip" style="margin-top:14px">以下为同期记录，仅供自我观察；它不能证明某种食物或饮品导致本次血尿酸变化。</div>`;
+  return `<div class="page-intro"><div><p class="eyebrow">OBSERVATION / NO CAUSAL CLAIMS</p><h3>看见变化，也保留边界。</h3><p>独立展示实测、膳食负荷和饮品容量；同期记录不能证明因果。</p></div><div class="period-switch">${[['30', '近 30 天'], ['90', '近 90 天'], ['365', '近 1 年'], ['all', '全部']].map(([value, label]) => `<button class="chip ${state.statsPeriod === value ? 'active' : ''}" data-action="stats-period" data-period="${value}">${label}</button>`).join('')}</div></div><div class="stat-layout"><section class="panel"><div class="panel-header"><div><h4>血尿酸实测趋势</h4><p>内部统一按 μmol/L 计算；本页统一显示为 ${preferredUrateUnit()}，记录详情保留原始单位。</p></div><span class="mono">${measurements.length} MEASUREMENTS</span></div><div class="metric-trio metrics-wide"><div><small>最新</small><strong>${latest ? formatUrate(latest.valueUmolL) : '—'}</strong></div><div><small>上一次 / 间隔</small><strong>${previous ? `${formatUrate(previous.valueUmolL)} · ${intervalLabel}` : '—'}</strong></div><div><small>两次差值</small><strong>${diff === null ? '—' : formatUrateDelta(diff)}</strong></div><div><small>记录数</small><strong>${stats.urateStats?.count || 0}</strong></div><div><small>最小 / 最大</small><strong>${stats.urateStats?.min === null || stats.urateStats?.min === undefined ? '—' : formatUrateMinMax(stats.urateStats.min, stats.urateStats.max)}</strong></div><div><small>中位数</small><strong>${stats.urateStats?.median === null || stats.urateStats?.median === undefined ? '—' : formatUrate(stats.urateStats.median)}</strong></div></div>${renderLineChart(measurements)}<div class="section-heading"><h4>可读数据表</h4><small>按测量日期，不补齐缺测日</small></div>${measurements.length ? `<table class="data-table"><caption class="sr-only">血尿酸实测数据</caption><thead><tr><th scope="col">日期</th><th scope="col">原始值</th><th scope="col">当前显示</th></tr></thead><tbody>${measurements.slice().reverse().map((row) => `<tr><td>${formatDate(row.date, false)}</td><td>${formatNumber(row.valueOriginal, 2)} ${escapeHtml(row.unitOriginal)}</td><td>${formatUrate(row.valueUmolL)}</td></tr>`).join('')}</tbody></table>` : '<div class="chart-empty compact-empty">还没有实测数据</div>'}</section><section class="panel"><div class="panel-header"><div><h4>饮食与饮品趋势</h4><p>只呈现饮食或饮品有记录的天；不把空白当作 0。</p></div><span class="mono">${stats.recordedDays || 0} / ${stats.totalDays || 0} 饮食/饮品记录日</span></div><div class="metric-trio metrics-wide"><div><small>区间饮品</small><strong>${formatNumber(beverageTotal, 0)}mL</strong></div><div><small>纯净水</small><strong>${formatNumber(plainWaterTotal, 0)}mL</strong></div><div><small>其他饮品</small><strong>${formatNumber(otherBeverageTotal, 0)}mL</strong></div></div>${renderBarChart(stats.daily)}<div class="section-heading"><h4>日数据</h4><small>嘌呤范围 · 饮品总量 · 纯净水 · 其他饮品</small></div>${stats.daily?.length ? `<table class="data-table"><caption class="sr-only">每日饮食与饮品数据</caption><thead><tr><th scope="col">日期</th><th scope="col">嘌呤</th><th scope="col">饮品</th><th scope="col">纯水</th><th scope="col">其他</th></tr></thead><tbody>${stats.daily.slice().reverse().map((row) => `<tr><td>${formatDate(row.date, false)}</td><td>${formatRange(row.purineLow, row.purineHigh)}</td><td>${formatNumber(row.beverageTotalMl, 0)}mL</td><td>${formatNumber(row.plainWaterMl, 0)}mL</td><td>${formatNumber((row.beverageTotalMl || 0) - (row.plainWaterMl || 0), 0)}mL</td></tr>`).join('')}</tbody></table>` : '<div class="chart-empty compact-empty">还没有饮食或饮品趋势</div>'}</section></div><section class="panel" style="margin-top:14px"><div class="panel-header"><div><h4>同期记录对照</h4><p>每次实测前的 1 / 3 / 7 个完整日；只展示同一时间窗中的记录。</p></div><span class="mono">CONTEXT ONLY</span></div>${stats.comparisons?.length ? `<div class="comparison-list">${stats.comparisons.slice().reverse().map((item) => `<div class="comparison-row"><header><span>${formatDate(item.measurement.date)} 实测 ${formatUrate(item.measurement.valueUmolL)}</span><span>不能证明因果</span></header><div class="comparison-windows">${item.windows.map((window) => `<div class="comparison-window"><small>前 ${window.days} 日 · ${window.totalCount ? window.coverage : '无饮食记录'}</small><strong>${formatRange(window.low, window.high)}</strong><small>${formatNumber(window.beverageTotalMl, 0)}mL · 纯水 ${formatNumber(window.plainWaterMl, 0)}mL · ${window.recordedDays} 天有饮食/饮品</small></div>`).join('')}</div></div>`).join('')}</div>` : '<div class="empty-state"><strong>有了尿酸实测，才会出现同期回看</strong><span>这个区域不会替你生成因果结论。</span></div>'}</section><div class="info-strip" style="margin-top:14px">以下为同期记录，仅供自我观察；它不能证明某种食物或饮品导致本次血尿酸变化。</div>`;
 }
 
 function renderLineChart(rows) {
@@ -355,13 +415,13 @@ function renderLineChart(rows) {
   const firstDay = Date.parse(`${rows[0].date}T00:00:00Z`); const lastDay = Date.parse(`${rows.at(-1).date}T00:00:00Z`); const daySpan = Math.max(1, Math.round((lastDay - firstDay) / 86400000));
   const points = rows.map((row) => { const dayOffset = Math.max(0, Math.round((Date.parse(`${row.date}T00:00:00Z`) - firstDay) / 86400000)); const x = pad.left + (rows.length === 1 ? (width - pad.left - pad.right) / 2 : dayOffset / daySpan * (width - pad.left - pad.right)); const y = pad.top + (max - row.valueUmolL) / spread * (height - pad.top - pad.bottom); return { x, y, row }; });
   const path = points.map((point, index) => `${index ? 'L' : 'M'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' ');
-  return `<div class="chart-wrap"><svg class="line-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="血尿酸实测趋势图"><line class="grid-line" x1="${pad.left}" x2="${width - pad.right}" y1="${pad.top}" y2="${pad.top}"/><line class="grid-line" x1="${pad.left}" x2="${width - pad.right}" y1="${height / 2}" y2="${height / 2}"/><line class="grid-line" x1="${pad.left}" x2="${width - pad.right}" y1="${height - pad.bottom}" y2="${height - pad.bottom}"/><text x="0" y="${pad.top + 4}" fill="#7e847b" font-size="10">${formatNumber(max, 0)}</text><text x="0" y="${height - pad.bottom + 4}" fill="#7e847b" font-size="10">${formatNumber(min, 0)}</text><path class="trend-line" d="${path}"/>${points.map((point) => `<circle class="trend-dot" cx="${point.x}" cy="${point.y}" r="5"><title>${point.row.date} ${formatUrate(point.row.valueUmolL)}</title></circle>`).join('')}<text x="${pad.left}" y="${height - 5}" fill="#7e847b" font-size="9">${rows[0].date}</text><text text-anchor="end" x="${width - pad.right}" y="${height - 5}" fill="#7e847b" font-size="9">${rows.at(-1).date}</text></svg></div>`;
+  return `<div class="chart-wrap"><svg class="line-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="血尿酸实测趋势图，单位 ${preferredUrateUnit()}"><line class="grid-line" x1="${pad.left}" x2="${width - pad.right}" y1="${pad.top}" y2="${pad.top}"/><line class="grid-line" x1="${pad.left}" x2="${width - pad.right}" y1="${height / 2}" y2="${height / 2}"/><line class="grid-line" x1="${pad.left}" x2="${width - pad.right}" y1="${height - pad.bottom}" y2="${height - pad.bottom}"/><text x="0" y="${pad.top + 4}" font-size="10">${formatNumber(urateValueInPreferredUnit(max), 1)}</text><text x="0" y="${height - pad.bottom + 4}" font-size="10">${formatNumber(urateValueInPreferredUnit(min), 1)}</text><path class="trend-line" d="${path}"/>${points.map((point) => `<circle class="trend-dot" cx="${point.x}" cy="${point.y}" r="5"><title>${point.row.date} ${formatUrate(point.row.valueUmolL)}</title></circle>`).join('')}<text x="${pad.left}" y="${height - 5}" font-size="9">${rows[0].date}</text><text text-anchor="end" x="${width - pad.right}" y="${height - 5}" font-size="9">${rows.at(-1).date}</text></svg></div>`;
 }
 
 function renderBarChart(rows) {
   if (!rows?.length) return '<div class="chart-empty">有记录后会显示每日区间。</div>';
   const max = Math.max(...rows.map((row) => row.purineHigh || 0), 1);
-  return `<div class="bar-chart">${rows.slice(-14).map((row) => `<div class="bar-column"><div class="bar" style="height:${Math.max(3, ((row.purineHigh || 0) / max) * 145)}px" title="${formatRange(row.purineLow, row.purineHigh)}"></div><small>${row.date.slice(5)}</small></div>`).join('')}</div>`;
+  return `<div class="bar-chart" role="img" aria-label="每日膳食嘌呤估算区间图">${rows.slice(-14).map((row) => { const low = Math.max(0, row.purineLow || 0); const high = Math.max(low, row.purineHigh || 0); const bottom = (low / max) * 145; const height = Math.max(3, ((high - low) / max) * 145); return `<div class="bar-column"><div class="bar-track"><div class="bar-range" style="bottom:${bottom}px;height:${height}px" title="${formatRange(row.purineLow, row.purineHigh)}"><span class="sr-only">${escapeHtml(row.date)} ${formatRange(row.purineLow, row.purineHigh)}</span></div></div><small>${row.date.slice(5)}</small></div>`; }).join('')}</div>`;
 }
 
 function renderManage() {
@@ -418,17 +478,49 @@ function renderSettingsLibrary() {
   const backupAlert = state.bootstrap.backupAlert;
   const portions = ['food', 'recipe', 'beverage'].map((kind) => `<div class="form-field"><label>${kind === 'food' ? '食物' : kind === 'recipe' ? '菜谱' : '饮品'}快捷模板（${kind === 'beverage' ? 'mL' : 'g'}）</label><div class="preset-row">${state.bootstrap.portions.filter((item) => item.kind === kind).map((item) => `<input class="portion-input" data-kind="${escapeHtml(kind)}" data-id="${escapeHtml(item.id)}" type="number" min="0.1" step="0.1" value="${escapeHtml(item.value)}" aria-label="${escapeHtml(kind)}模板" style="width:78px" />`).join('')}</div></div>`).join('');
   const sessions = state.sessions.length ? `<div class="library-list">${state.sessions.map((session) => `<div class="library-item"><div><strong>${session.device_label ? escapeHtml(session.device_label.slice(0, 42)) : '未命名设备'}</strong><small>创建 ${escapeHtml(session.created_at)} · 最后使用 ${escapeHtml(session.last_used_at)} · 到期 ${escapeHtml(session.expires_at)}</small></div><div><span class="status-label ${session.revoked_at ? '' : 'prepared'}">${session.revoked_at ? '已撤销' : '有效'}</span>${session.revoked_at ? '' : `<button class="text-button" data-action="revoke-session" data-id="${escapeHtml(session.id)}">撤销</button>`}</div></div>`).join('')}</div>` : '<div class="empty-state"><strong>没有可信设备</strong><span>当前浏览器验证后会出现在这里。</span></div>';
-  return `<div class="manage-layout"><section class="panel"><div class="panel-header"><div><h4>显示与录入设置</h4><p>饮水目标只是个人配置，不自动判定达标或风险。</p></div></div><form data-form="settings" class="settings-stack"><div class="setting-row"><div><label for="setting-unit">血尿酸首选单位</label><small>只改变显示，不修改历史原始数据。</small></div><select id="setting-unit" name="defaultUrateUnit" style="max-width:130px"><option value="umol/L" ${settings.defaultUrateUnit === 'umol/L' ? 'selected' : ''}>μmol/L</option><option value="mg/dL" ${settings.defaultUrateUnit === 'mg/dL' ? 'selected' : ''}>mg/dL</option></select></div><div class="setting-row"><div><label for="setting-water">饮水目标（mL/日）</label><small>心肾功能或限液情况不确定时，先咨询专业人员。</small></div><input id="setting-water" name="waterGoalMl" type="number" min="1" value="${settings.waterGoalMl || ''}" placeholder="可留空" style="max-width:130px" /></div><button class="button button-primary" type="submit">保存设置</button></form><form data-form="portions" class="settings-stack" style="margin-top:18px"><div class="panel-header"><div><h4>快捷份量模板</h4><p>自定义值仍可在录入时直接输入。</p></div></div>${portions}<button class="button button-secondary" type="submit">保存模板</button></form></section><section class="panel"><div class="panel-header"><div><h4>备份与迁移</h4><p>完整导出不包含口令、设备凭证或服务器密钥。</p></div></div><div class="settings-stack"><button class="button button-secondary button-block" data-action="download-export" data-format="json">下载完整 JSON 导出</button><button class="button button-secondary button-block" data-action="download-export" data-format="zip">下载 ZIP 导出</button><button class="button button-secondary button-block" data-action="download-csv" data-format="urate">导出血尿酸 CSV</button><button class="button button-secondary button-block" data-action="download-csv" data-format="daily-summary">导出每日汇总 CSV</button><button class="button button-secondary button-block" data-action="create-snapshot">创建 SQLite 安全快照</button><label class="button button-secondary button-block" style="display:grid;place-items:center">预览恢复文件<input id="restore-file" type="file" accept="application/json,.json" hidden /></label><button class="button button-danger button-block" data-action="delete-all-data">删除全部个人记录</button><div id="backup-status" class="form-hint"></div></div></section></div><div class="manage-layout" style="margin-top:14px"><section class="panel"><div class="panel-header"><div><h4>访问口令</h4><p>修改后所有可信设备立即失效，服务重启仍保持新口令。</p></div></div><form data-form="password" class="settings-stack"><input name="newPassword" type="password" minlength="8" autocomplete="new-password" placeholder="新口令（至少 8 个字符）" required /><input name="confirmPassword" type="password" minlength="8" autocomplete="new-password" placeholder="再次输入新口令" required /><button class="button button-danger" type="submit">修改共享访问口令</button></form></section><section class="panel"><div class="panel-header"><div><h4>可信设备</h4><p>撤销后旧 Cookie 下一次请求立即失效。</p></div><button class="text-button" data-action="revoke-all-sessions">撤销全部</button></div>${sessions}</section></div>${backupAlert ? `<div class="info-strip" style="margin-top:14px">最近一次备份或异机复制出现失败：${escapeHtml(backupAlert.status)}。请检查备份目录、权限和异机目标，直到后续成功备份清除告警。</div>` : ''}<div class="info-strip" style="margin-top:14px">自动备份只有在成功恢复验证后才能标记 VERIFIED。当前页面可以生成本地快照和可移植导出；异机复制与真实目标服务器迁移仍需按部署环境演练。</div>`;
+  return `<div class="settings-hub"><details class="panel settings-section" open><summary><span><strong>显示与快捷录入</strong><small>首选单位、饮水记录目标和快捷份量</small></span><span class="details-toggle" aria-hidden="true">展开</span></summary><div class="settings-section-body"><form data-form="settings" class="settings-stack"><div class="setting-row"><div><label for="setting-unit">血尿酸首选单位</label><small>只改变显示，不修改历史原始数据。</small></div><select id="setting-unit" name="defaultUrateUnit" style="max-width:130px"><option value="umol/L" ${settings.defaultUrateUnit === 'umol/L' ? 'selected' : ''}>μmol/L</option><option value="mg/dL" ${settings.defaultUrateUnit === 'mg/dL' ? 'selected' : ''}>mg/dL</option></select></div><div class="setting-row"><div><label for="setting-water">饮水目标（mL/日）</label><small>心肾功能或限液情况不确定时，先咨询专业人员。</small></div><input id="setting-water" name="waterGoalMl" type="number" min="1" value="${settings.waterGoalMl || ''}" placeholder="可留空" style="max-width:130px" /></div><button class="button button-primary" type="submit">保存显示设置</button></form><form data-form="portions" class="settings-stack settings-subsection"><div class="panel-header"><div><h4>快捷份量模板</h4><p>自定义值仍可在录入时直接输入。</p></div></div>${portions}<button class="button button-secondary" type="submit">保存快捷份量</button></form></div></details><details class="panel settings-section"><summary><span><strong>备份与迁移</strong><small>完整导出、CSV、SQLite 快照与 JSON 恢复</small></span><span class="details-toggle" aria-hidden="true">展开</span></summary><div class="settings-section-body settings-stack"><p class="section-note">完整导出不包含口令、设备凭证或服务器密钥。ZIP 用于归档；网页恢复请选择完整 JSON 导出。</p><button class="button button-secondary button-block" data-action="download-export" data-format="json">下载完整 JSON（可用于恢复）</button><button class="button button-secondary button-block" data-action="download-export" data-format="zip">下载 ZIP 归档</button><button class="button button-secondary button-block" data-action="download-csv" data-format="urate">导出血尿酸 CSV</button><button class="button button-secondary button-block" data-action="download-csv" data-format="daily-summary">导出每日汇总 CSV</button><button class="button button-secondary button-block" data-action="create-snapshot">创建 SQLite 安全快照</button><label class="button button-secondary button-block restore-picker">选择完整 JSON 并预览恢复<input id="restore-file" type="file" accept="application/json,.json" hidden /></label><div id="backup-status" class="form-hint" role="status" aria-live="polite"></div><div class="danger-zone"><strong>危险操作</strong><span>删除前会尝试备份，并要求输入完整确认短语。</span><button class="button button-danger button-block" data-action="delete-all-data">删除全部个人记录…</button></div></div></details><details class="panel settings-section"><summary><span><strong>访问口令与可信设备</strong><small>修改口令、查看或撤销已经信任的设备</small></span><span class="details-toggle" aria-hidden="true">展开</span></summary><div class="settings-section-body security-settings"><section><div class="panel-header"><div><h4>修改访问口令</h4><p>修改后所有可信设备立即失效，服务重启仍保持新口令。</p></div></div><form data-form="password" class="settings-stack"><div class="form-field"><label for="new-shared-password">新口令（至少 8 个字符）</label><input id="new-shared-password" name="newPassword" type="password" minlength="8" autocomplete="new-password" required /></div><div class="form-field"><label for="confirm-shared-password">再次输入新口令</label><input id="confirm-shared-password" name="confirmPassword" type="password" minlength="8" autocomplete="new-password" required /></div><button class="button button-danger" type="submit">修改共享访问口令…</button></form></section><section><div class="panel-header"><div><h4>可信设备</h4><p>撤销后旧 Cookie 下一次请求立即失效。</p></div><button class="text-button" data-action="revoke-all-sessions">撤销全部…</button></div>${sessions}</section></div></details>${backupAlert ? `<div class="info-strip">最近一次备份或异机复制出现失败：${escapeHtml(backupAlert.status)}。请检查备份目录、权限和异机目标，直到后续成功备份清除告警。</div>` : ''}<div class="info-strip">自动备份只有在成功恢复验证后才能标记 VERIFIED。当前页面可以生成本地快照和可移植导出；异机复制与真实目标服务器迁移仍需按部署环境演练。</div></div>`;
+}
+
+function getFocusable(root) {
+  return $$('a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])', root)
+    .filter((node) => !node.hidden && node.getClientRects().length > 0);
+}
+
+function ensureFormLabels(root) {
+  $$('label:not([for])', root).forEach((label) => {
+    if (label.querySelector('input, select, textarea')) return;
+    const field = label.closest('.form-field, .setting-row');
+    const control = field?.querySelector('input:not([type="hidden"]), select, textarea');
+    if (!control || control.getAttribute('aria-label') || control.getAttribute('aria-labelledby')) return;
+    if (!control.id) control.id = `generated-field-${++generatedFieldId}`;
+    label.htmlFor = control.id;
+  });
 }
 
 function openModal(title, subtitle, content, context = {}) {
   state.modalContext = context;
+  modalTrigger = document.activeElement;
   $('#toast-region').replaceChildren();
-  $('#modal-root').innerHTML = `<div class="modal-backdrop" data-action="close-modal"><section class="modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}"><div class="modal-header"><div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(subtitle || '')}</p></div><button class="modal-close" type="button" data-action="close-modal" aria-label="关闭">×</button></div>${content}</section></div>`;
+  const titleId = `modal-title-${Date.now()}`;
+  $('#modal-root').innerHTML = `<div class="modal-backdrop" data-action="close-modal"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="${titleId}" tabindex="-1"><div class="modal-header"><div><h3 id="${titleId}">${escapeHtml(title)}</h3><p>${escapeHtml(subtitle || '')}</p></div><button class="modal-close" type="button" data-action="close-modal" aria-label="关闭${escapeHtml(title)}">×</button></div>${content}</section></div>`;
+  ensureFormLabels($('.modal'));
+  const form = $('.modal form[data-form]');
+  if (form && !form.dataset.id && ['diet', 'beverage', 'measurement', 'treatment'].includes(form.dataset.form)) form.dataset.clientId = crypto.randomUUID();
   document.body.style.overflow = 'hidden';
+  $('#app').inert = true;
+  $('#gate').inert = true;
+  requestAnimationFrame(() => $('.modal')?.focus({ preventScroll: true }));
 }
 
-function closeModal() { $('#modal-root').innerHTML = ''; document.body.style.overflow = ''; state.modalContext = null; }
+function closeModal() {
+  $('#modal-root').innerHTML = '';
+  document.body.style.overflow = '';
+  $('#app').inert = false;
+  $('#gate').inert = false;
+  state.modalContext = null;
+  if (modalTrigger && document.contains(modalTrigger)) modalTrigger.focus({ preventScroll: true });
+  modalTrigger = null;
+}
 
 function pickerOptions(kind, search = '') {
   const list = kind === 'recipe' ? state.bootstrap.recipes.filter((item) => item.purineLow !== null && item.purineHigh !== null) : state.bootstrap.foods;
@@ -459,6 +551,10 @@ function openBeverageModal(edit = null) {
   const beverage = state.bootstrap.beverages.find((x) => x.id === edit?.beverageId);
   const presets = state.bootstrap.portions.filter((preset) => preset.kind === 'beverage');
   openModal(edit ? '修改饮品记录' : '记录饮品', '饮品只统计容量，不自动赋予降尿酸值。', `<form data-form="beverage" data-id="${escapeHtml(edit?.id || '')}"><div class="form-grid"><div class="form-field full"><label>记录日期</label><input name="date" type="date" value="${escapeHtml(edit?.date || state.currentDate)}" required /></div><div class="form-field full"><label>饮品</label><select name="beverageId" required>${state.bootstrap.beverages.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === beverage?.id ? 'selected' : ''}>${escapeHtml(item.name)}${item.system ? ' · 系统预置' : ''}</option>`).join('')}</select></div><div class="form-field"><label>每份容量（mL）</label><input name="amountMl" type="number" min="0.1" step="0.1" value="${escapeHtml(edit?.quantity > 1 ? edit.amountMl / edit.quantity : edit?.amountMl || '')}" required /></div><div class="form-field"><label>数量</label><input name="quantity" type="number" min="1" step="1" value="${escapeHtml(edit?.quantity || 1)}" required /></div><div class="form-field full"><label>快捷容量</label><div class="preset-row">${presets.map((preset) => `<button type="button" class="preset-button" data-action="use-preset" data-value="${escapeHtml(preset.value)}">${escapeHtml(preset.value)}mL</button>`).join('')}</div></div></div><div class="preview-card"><small>规范化总量</small><strong class="beverage-preview">—</strong><p>例如 500mL × 2 会保存为 1000mL。</p></div><div class="modal-actions"><button type="button" class="button button-secondary" data-action="close-modal">取消</button><button type="submit" class="button button-primary">${edit ? '保存修改' : '保存饮品'}</button></div></form>`, { type: 'beverage' });
+  if (edit && !beverage) {
+    const select = $('[data-form="beverage"] [name="beverageId"]');
+    select?.prepend(new Option(`${edit.name} · 已归档（保留当前）`, edit.beverageId, true, true));
+  }
   updateBeveragePreview();
 }
 
@@ -466,6 +562,11 @@ function updateBeveragePreview() { const form = $('[data-form="beverage"]'); if 
 
 function openMeasurementModal(edit = null) {
   openModal(edit ? '修改尿酸实测' : '记录尿酸实测', '保存原始输入与规范化值；换算只用于统一统计口径，不作医学解释。', `<form data-form="measurement" data-id="${escapeHtml(edit?.id || '')}"><div class="form-grid"><div class="form-field"><label>测量日期</label><input name="date" type="date" value="${escapeHtml(edit?.date || state.currentDate)}" required /></div><div class="form-field"><label>测量时间（可选）</label><input name="time" type="time" value="${escapeHtml(edit?.time || '')}" /></div><div class="form-field"><label>原始数值</label><input name="valueOriginal" type="number" min="0.01" step="0.01" value="${escapeHtml(edit?.valueOriginal || '')}" required /></div><div class="form-field"><label>原始单位</label><select name="unitOriginal"><option value="umol/L" ${edit?.unitOriginal !== 'mg/dL' ? 'selected' : ''}>μmol/L</option><option value="mg/dL" ${edit?.unitOriginal === 'mg/dL' ? 'selected' : ''}>mg/dL</option></select></div><div class="form-field"><label>空腹状态</label><select name="fasting"><option value="unknown" ${!edit || edit.fasting === 'unknown' ? 'selected' : ''}>未知</option><option value="fasting" ${edit?.fasting === 'fasting' ? 'selected' : ''}>空腹</option><option value="non_fasting" ${edit?.fasting === 'non_fasting' ? 'selected' : ''}>非空腹</option></select></div><div class="form-field"><label>来源</label><select name="sourceKind"><option value="" ${!edit?.sourceKind ? 'selected' : ''}>未填写</option><option value="医院检验">医院检验</option><option value="体检">体检</option><option value="家用设备">家用设备</option><option value="其他">其他</option></select></div><div class="form-field full"><label>检测机构或设备名称（可选）</label><input name="facility" value="${escapeHtml(edit?.facility || '')}" placeholder="例如：某医院检验科" /></div><div class="form-field"><label>报告参考下限（可选）</label><input name="referenceLowOriginal" type="number" min="0" step="0.01" value="${escapeHtml(edit?.referenceLowOriginal ?? '')}" /></div><div class="form-field"><label>报告参考上限（可选）</label><input name="referenceHighOriginal" type="number" min="0" step="0.01" value="${escapeHtml(edit?.referenceHighOriginal ?? '')}" /></div><div class="form-field full"><label>备注</label><textarea name="note" placeholder="不记录药物建议；只记可回看的事实。">${escapeHtml(edit?.note || '')}</textarea></div></div><div class="preview-card"><small>保存前换算预览</small><strong class="urate-preview">请输入数值</strong><p>固定换算：μmol/L = mg/dL × 59.48。</p></div><div class="modal-actions"><button type="button" class="button button-secondary" data-action="close-modal">取消</button><button type="submit" class="button button-primary">${edit ? '保存修改' : '保存实测'}</button></div></form>`, { type: 'measurement' });
+  const form = $('[data-form="measurement"]');
+  $('[name="fasting"]', form)?.closest('.form-field')?.insertAdjacentHTML('afterend', `<div class="form-field"><label for="measurement-acute-flare">是否处于急性发作期</label><select id="measurement-acute-flare" name="acuteFlare"><option value="" ${edit?.acuteFlare === null || edit?.acuteFlare === undefined ? 'selected' : ''}>未知</option><option value="true" ${edit?.acuteFlare === true ? 'selected' : ''}>是</option><option value="false" ${edit?.acuteFlare === false ? 'selected' : ''}>否</option></select></div>`);
+  $('[name="referenceHighOriginal"]', form)?.closest('.form-field')?.insertAdjacentHTML('afterend', `<div class="form-field"><label for="measurement-reference-unit">报告参考范围单位</label><select id="measurement-reference-unit" name="referenceUnitOriginal"><option value="umol/L" ${edit?.referenceUnitOriginal !== 'mg/dL' ? 'selected' : ''}>μmol/L</option><option value="mg/dL" ${edit?.referenceUnitOriginal === 'mg/dL' ? 'selected' : ''}>mg/dL</option></select></div>`);
+  if (edit?.sourceKind) $('[name="sourceKind"]', form).value = edit.sourceKind;
+  ensureFormLabels(form);
   updateUratePreview();
 }
 
@@ -479,7 +580,10 @@ function renderTreatmentResultInput(result = null) {
 
 function addTreatmentResultRow(result = null) {
   const root = $('#treatment-result-rows');
-  if (root) root.insertAdjacentHTML('beforeend', renderTreatmentResultInput(result));
+  if (root) {
+    root.insertAdjacentHTML('beforeend', renderTreatmentResultInput(result));
+    ensureFormLabels(root.lastElementChild);
+  }
 }
 
 function toggleTreatmentSections(form) {
@@ -529,7 +633,7 @@ function openRecipeModal(editId = null) {
 function addIngredientRow(item = null) {
   const root = $('#ingredient-rows'); if (!root) return;
   const row = document.createElement('div'); row.className = 'ingredient-row'; row.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) 100px 44px;gap:7px;margin-bottom:7px;';
-  row.innerHTML = `<select name="foodVersionId" required><option value="">选择食物版本</option>${state.bootstrap.foods.map((food) => `<option value="${escapeHtml(food.versionId)}" ${food.versionId === item?.foodVersionId ? 'selected' : ''}>${escapeHtml(food.name)} · ${food.purineLow === null ? '未知' : formatRange(food.purineLow, food.purineHigh)}</option>`).join('')}</select><input name="grams" type="number" min="0.1" step="0.1" value="${escapeHtml(item?.grams || '')}" placeholder="克数" required /><button class="icon-button" type="button" data-action="remove-ingredient" aria-label="移除配料">×</button>`;
+  row.innerHTML = `<select name="foodVersionId" aria-label="选择配料食物" required><option value="">选择食物版本</option>${state.bootstrap.foods.map((food) => `<option value="${escapeHtml(food.versionId)}" ${food.versionId === item?.foodVersionId ? 'selected' : ''}>${escapeHtml(food.name)} · ${food.purineLow === null ? '未知' : formatRange(food.purineLow, food.purineHigh)}</option>`).join('')}</select><input name="grams" aria-label="配料克数" type="number" min="0.1" step="0.1" value="${escapeHtml(item?.grams || '')}" placeholder="克数" required /><button class="icon-button" type="button" data-action="remove-ingredient" aria-label="移除配料">×</button>`;
   root.appendChild(row);
 }
 
@@ -545,7 +649,11 @@ function openSourceModal() {
 }
 
 function showGate(message = '') {
+  if (state.modalContext) closeModal();
+  closeMobileMenu();
+  $('#gate').inert = false;
   $('#gate').classList.remove('hidden'); $('#app').classList.add('hidden'); $('#login-message').textContent = message; state.csrf = null;
+  requestAnimationFrame(() => $('#login-password')?.focus({ preventScroll: true }));
 }
 
 async function boot() {
@@ -576,10 +684,39 @@ function collectTreatmentResults(form) {
   }));
 }
 
+function setFormPending(form, pending) {
+  form.dataset.pending = String(pending);
+  form.setAttribute('aria-busy', String(pending));
+  const submit = form.querySelector('button[type="submit"]');
+  if (!submit) return;
+  if (pending) {
+    submit.dataset.originalLabel = submit.textContent;
+    submit.textContent = form.dataset.form === 'treatment-filter' ? '正在筛选…' : '正在保存…';
+    submit.disabled = true;
+  } else {
+    submit.textContent = submit.dataset.originalLabel || submit.textContent;
+    submit.disabled = false;
+    delete submit.dataset.originalLabel;
+  }
+}
+
+function showFormError(form, message) {
+  form.querySelector('.form-error')?.remove();
+  const node = document.createElement('div');
+  node.className = 'form-error';
+  node.role = 'alert';
+  node.tabIndex = -1;
+  node.textContent = `${message}。请检查已填写内容后重试。`;
+  const actions = form.querySelector('.modal-actions');
+  if (actions) actions.before(node); else form.appendChild(node);
+  node.focus({ preventScroll: false });
+}
+
 document.addEventListener('click', async (event) => {
   const button = event.target.closest('[data-action]'); if (!button) return;
   const action = button.dataset.action;
   try {
+    if (action === 'retry-route') { await renderCurrentRoute(); return; }
     if (action === 'close-modal') { if (event.target.classList.contains('modal-backdrop') || button.classList.contains('modal-close') || button.classList.contains('button-secondary')) closeModal(); return; }
     if (action === 'shift-date') { state.currentDate = addDays(state.currentDate, Number(button.dataset.days)); await renderCurrentRoute(); return; }
     if (action === 'open-diet') { openDietModal(button.dataset.kind); return; }
@@ -642,12 +779,31 @@ document.addEventListener('change', async (event) => {
   if (event.target.matches('[data-form="treatment"] [name="eventType"]')) toggleTreatmentSections(event.target.closest('[data-form="treatment"]'));
   if (event.target.id === 'restore-file') {
     const file = event.target.files?.[0]; if (!file) return;
-    try { const payload = JSON.parse(await file.text()); const preview = await api('/api/backup/restore/preview', { method: 'POST', body: JSON.stringify(payload) }); if (confirm(`将恢复 ${preview.dateRange ? `${preview.dateRange.from} 至 ${preview.dateRange.to}` : '无日期'} 的数据。确认继续？`)) { payload.confirmation = 'RESTORE_URIC_ACID'; await api('/api/backup/restore', { method: 'POST', body: JSON.stringify(payload) }); showGate('恢复完成。为安全起见，请重新输入共享访问口令。'); } } catch (error) { showToast(error.message, 'error'); }
+    const status = $('#backup-status');
+    try {
+      if (status) status.textContent = '正在校验恢复文件…';
+      const payload = JSON.parse(await file.text());
+      const preview = await api('/api/backup/restore/preview', { method: 'POST', body: JSON.stringify(payload) });
+      if (status) status.textContent = `完整性已校验：SHA-256 ${preview.integrity.sha256.slice(0, 16)}…`;
+      if (confirm(`文件完整性校验通过。将完整替换为 ${preview.dateRange ? `${preview.dateRange.from} 至 ${preview.dateRange.to}` : '无日期'} 的数据，并让所有设备重新验证。继续？`)) {
+        payload.confirmation = 'RESTORE_URIC_ACID';
+        await api('/api/backup/restore', { method: 'POST', body: JSON.stringify(payload) });
+        showGate('恢复完成且完整性已校验。为安全起见，请重新输入共享访问口令。');
+      }
+    } catch (error) {
+      if (status) status.textContent = `恢复文件不可用：${error.message}`;
+      showToast(error.message, 'error');
+    } finally {
+      event.target.value = '';
+    }
   }
 });
 
 document.addEventListener('submit', async (event) => {
   const form = event.target; if (!form.matches('form[data-form]')) return; event.preventDefault();
+  if (form.dataset.pending === 'true') return;
+  form.querySelector('.form-error')?.remove();
+  setFormPending(form, true);
   try {
     const data = Object.fromEntries(new FormData(form).entries());
     if (form.dataset.form === 'treatment-filter') {
@@ -656,11 +812,11 @@ document.addEventListener('submit', async (event) => {
       return;
     }
     if (form.dataset.form === 'diet') {
-      const body = { clientId: form.dataset.id ? undefined : crypto.randomUUID(), date: data.date, kind: form.dataset.kind, versionId: data.versionId, quantityG: Number(data.quantityG) };
+      const body = { clientId: form.dataset.id ? undefined : form.dataset.clientId, date: data.date, kind: form.dataset.kind, versionId: data.versionId, quantityG: Number(data.quantityG) };
       const url = form.dataset.id ? `/api/diet-entries/${form.dataset.id}` : '/api/diet-entries'; await api(url, { method: form.dataset.id ? 'PUT' : 'POST', body: JSON.stringify(body) }); closeModal(); showToast(form.dataset.id ? '饮食记录已更新' : '饮食记录已保存'); await loadData(); await renderCurrentRoute(); return;
     }
-    if (form.dataset.form === 'beverage') { const body = { clientId: form.dataset.id ? undefined : crypto.randomUUID(), date: data.date, beverageId: data.beverageId, amountMl: Number(data.amountMl), quantity: Number(data.quantity) }; const url = form.dataset.id ? `/api/beverage-entries/${form.dataset.id}` : '/api/beverage-entries'; await api(url, { method: form.dataset.id ? 'PUT' : 'POST', body: JSON.stringify(body) }); closeModal(); showToast(form.dataset.id ? '饮品记录已更新' : '饮品记录已保存'); await loadData(); await renderCurrentRoute(); return; }
-    if (form.dataset.form === 'measurement') { const body = { clientId: form.dataset.id ? undefined : crypto.randomUUID(), date: data.date, time: data.time || null, valueOriginal: Number(data.valueOriginal), unitOriginal: data.unitOriginal, fasting: data.fasting, sourceKind: data.sourceKind, facility: data.facility, referenceLowOriginal: data.referenceLowOriginal, referenceHighOriginal: data.referenceHighOriginal, note: data.note }; const url = form.dataset.id ? `/api/measurements/${form.dataset.id}` : '/api/measurements'; await api(url, { method: form.dataset.id ? 'PUT' : 'POST', body: JSON.stringify(body) }); closeModal(); showToast(form.dataset.id ? '实测已更新' : '实测已保存'); await loadData(); await renderCurrentRoute(); return; }
+    if (form.dataset.form === 'beverage') { const body = { clientId: form.dataset.id ? undefined : form.dataset.clientId, date: data.date, beverageId: data.beverageId, amountMl: Number(data.amountMl), quantity: Number(data.quantity) }; const url = form.dataset.id ? `/api/beverage-entries/${form.dataset.id}` : '/api/beverage-entries'; await api(url, { method: form.dataset.id ? 'PUT' : 'POST', body: JSON.stringify(body) }); closeModal(); showToast(form.dataset.id ? '饮品记录已更新' : '饮品记录已保存'); await loadData(); await renderCurrentRoute(); return; }
+    if (form.dataset.form === 'measurement') { const body = { clientId: form.dataset.id ? undefined : form.dataset.clientId, date: data.date, time: data.time || null, valueOriginal: Number(data.valueOriginal), unitOriginal: data.unitOriginal, fasting: data.fasting, sourceKind: data.sourceKind, facility: data.facility, acuteFlare: data.acuteFlare === '' ? null : data.acuteFlare === 'true', referenceLowOriginal: data.referenceLowOriginal, referenceHighOriginal: data.referenceHighOriginal, referenceUnitOriginal: data.referenceUnitOriginal, note: data.note }; const url = form.dataset.id ? `/api/measurements/${form.dataset.id}` : '/api/measurements'; await api(url, { method: form.dataset.id ? 'PUT' : 'POST', body: JSON.stringify(body) }); closeModal(); showToast(form.dataset.id ? '实测已更新' : '实测已保存'); await loadData(); await renderCurrentRoute(); return; }
     if (form.dataset.form === 'library-food') { const body = { ...data, basisG: Number(data.basisG), purineLow: data.purineLow === '' ? null : Number(data.purineLow), purineMean: data.purineMean === '' ? null : Number(data.purineMean), purineHigh: data.purineHigh === '' ? null : Number(data.purineHigh) }; const url = form.dataset.id ? `/api/foods/${form.dataset.id}` : '/api/foods'; await api(url, { method: form.dataset.id ? 'PUT' : 'POST', body: JSON.stringify(body) }); closeModal(); showToast('食物资料已保存'); await loadData(); renderCurrentRoute(); return; }
     if (form.dataset.form === 'library-beverage') { const body = { ...data, isPlainWater: form.querySelector('[name="isPlainWater"]').checked, containsSugar: form.querySelector('[name="containsSugar"]').checked }; const url = form.dataset.id ? `/api/beverages/${form.dataset.id}` : '/api/beverages'; await api(url, { method: form.dataset.id ? 'PUT' : 'POST', body: JSON.stringify(body) }); closeModal(); showToast('饮品资料已保存'); await loadData(); renderCurrentRoute(); return; }
     if (form.dataset.form === 'library-recipe') { const ingredients = $$('.ingredient-row', form).map((row) => ({ foodVersionId: $('[name="foodVersionId"]', row).value, grams: Number($('[name="grams"]', row).value) })).filter((row) => row.foodVersionId); const body = { name: data.name, groupId: data.groupId, mode: data.mode, finalYieldG: data.finalYieldG ? Number(data.finalYieldG) : null, purineLow: data.purineLow ? Number(data.purineLow) : null, purineHigh: data.purineHigh ? Number(data.purineHigh) : null, notes: data.notes, ingredients }; const url = form.dataset.id ? `/api/recipes/${form.dataset.id}` : '/api/recipes'; await api(url, { method: form.dataset.id ? 'PUT' : 'POST', body: JSON.stringify(body) }); closeModal(); showToast('菜谱资料已保存'); await loadData(); renderCurrentRoute(); return; }
@@ -671,7 +827,7 @@ document.addEventListener('submit', async (event) => {
       const isFuture = eventDate > todayIso();
       if (isFuture && eventType !== 'follow_up' && !confirm('这是未来日期的治疗记录，确定仍要保存吗？')) return;
       const body = {
-        clientId: form.dataset.id ? undefined : crypto.randomUUID(),
+        clientId: form.dataset.id ? undefined : form.dataset.clientId,
         ...data,
         allowFuture: isFuture && eventType !== 'follow_up',
         results: eventType === 'hospital_check' ? collectTreatmentResults(form) : [],
@@ -689,21 +845,55 @@ document.addEventListener('submit', async (event) => {
     if (form.dataset.form === 'settings') { await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ defaultUrateUnit: data.defaultUrateUnit, waterGoalMl: data.waterGoalMl }) }); showToast('设置已保存'); await loadData(); renderCurrentRoute(); return; }
     if (form.dataset.form === 'portions') { const portions = $$('.portion-input', form).map((input) => ({ kind: input.dataset.kind, value: Number(input.value) })); await api('/api/portions', { method: 'PUT', body: JSON.stringify({ portions }) }); showToast('快捷份量模板已保存'); await loadData(); renderCurrentRoute(); return; }
     if (form.dataset.form === 'password') { if (data.newPassword !== data.confirmPassword) throw new Error('两次新口令不一致'); await api('/api/auth/password', { method: 'POST', body: JSON.stringify({ newPassword: data.newPassword }) }); showGate('共享访问口令已修改，所有设备需要重新验证'); return; }
-  } catch (error) { showToast(error.message, 'error'); }
+  } catch (error) {
+    showToast(error.message, 'error');
+    if (document.contains(form)) showFormError(form, error.message);
+  } finally {
+    if (document.contains(form)) setFormPending(form, false);
+  }
 });
 
 $$('[data-route]').forEach((button) => button.addEventListener('click', () => setRoute(button.dataset.route)));
-window.addEventListener('hashchange', () => { const route = location.hash.replace('#', '') || 'today'; if (route !== state.route) setRoute(route); });
+window.addEventListener('hashchange', () => { const route = routeFromHash(); if (route !== state.route) setRoute(route); });
 $('#refresh-button').addEventListener('click', async () => { await loadData(); await renderCurrentRoute(); showToast('已刷新'); });
 $('#mobile-menu').addEventListener('click', toggleMobileMenu);
 $('#mobile-menu-backdrop').addEventListener('click', closeMobileMenu);
 document.addEventListener('keydown', (event) => {
+  const modal = $('.modal');
+  if (event.key === 'Tab' && modal) {
+    const focusable = getFocusable(modal);
+    if (!focusable.length) { event.preventDefault(); modal.focus(); return; }
+    const first = focusable[0]; const last = focusable.at(-1);
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === modal)) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    return;
+  }
+  const sidebar = $('.sidebar.open');
+  if (event.key === 'Tab' && sidebar) {
+    const focusable = getFocusable(sidebar);
+    const first = focusable[0]; const last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    return;
+  }
   if (event.key !== 'Escape') return;
-  if (state.modalContext) closeModal();
-  else closeMobileMenu();
+  if (modal) closeModal(); else closeMobileMenu();
 });
 $('#logout-button').addEventListener('click', async () => { try { await api('/api/auth/logout', { method: 'POST', body: JSON.stringify({}) }); } catch {} showGate('已退出当前设备'); });
-$('#login-form').addEventListener('submit', async (event) => { event.preventDefault(); const input = $('#login-password'); const message = $('#login-message'); message.textContent = '验证中…'; try { const result = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ password: input.value }) }); state.csrf = result.csrfToken; input.value = ''; $('#gate').classList.add('hidden'); $('#app').classList.remove('hidden'); await loadData(); setRoute('today'); } catch (error) { message.textContent = error.message; input.select(); } });
+$('#login-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const input = $('#login-password'); const message = $('#login-message'); const button = $('#login-form button[type="submit"]');
+  if (button.disabled) return;
+  button.disabled = true; button.textContent = '正在验证…'; input.setAttribute('aria-invalid', 'false'); message.textContent = '正在验证设备…';
+  try {
+    const result = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ password: input.value }) });
+    state.csrf = result.csrfToken; input.value = ''; message.textContent = ''; $('#gate').classList.add('hidden'); $('#app').classList.remove('hidden'); await loadData(); setRoute('today');
+  } catch (error) {
+    message.textContent = `${error.message}。请确认口令后重试。`; input.setAttribute('aria-invalid', 'true'); input.select();
+  } finally {
+    button.disabled = false; button.textContent = '进入记录';
+  }
+});
 
 function addDays(date, days) { const value = new Date(`${date}T00:00:00Z`); value.setUTCDate(value.getUTCDate() + Number(days)); return value.toISOString().slice(0, 10); }
 
