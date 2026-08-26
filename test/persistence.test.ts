@@ -57,3 +57,68 @@ test("seed library covers common foods, recipes and record-page guidance", () =>
   assert.equal(repository.getDay("2026-08-25").guidance.dietary.vegetable.loggedG, 0);
   db.close();
 });
+
+test("seed food values and categories keep their documented source mappings", () => {
+  const db = openDatabase(":memory:");
+  const repository = new Repository(db);
+  const bootstrap = repository.bootstrap();
+  const foodsById = new Map(bootstrap.foods.map((food: any) => [food.id, food]));
+
+  assert.equal(bootstrap.counts.foods, 157);
+  const groupCounts = db.prepare("SELECT group_id AS groupId, COUNT(*) AS count FROM foods WHERE archived_at IS NULL GROUP BY group_id").all();
+  assert.deepEqual(Object.fromEntries(groupCounts.map((row: any) => [row.groupId, row.count])), {
+    "food-grain": 21,
+    "food-vegetable": 36,
+    "food-fruit": 7,
+    "food-bean": 18,
+    "food-mushroom": 11,
+    "food-meat": 13,
+    "food-organ": 9,
+    "food-seafood": 19,
+    "food-egg-milk": 6,
+    "food-nut": 6,
+    "food-soup": 3,
+    "food-other": 8,
+  });
+
+  const expectedValues: Array<[string, number, string, string]> = [
+    ["food-rice", 34.67, "source-wst-560-2017", "熟"],
+    ["food-millet", 20.06, "source-wst-560-2017", "熟"],
+    ["food-sweet-potato", 18.62, "source-wst-560-2017", "熟"],
+    ["food-carrot", 13.23, "source-wst-560-2017", "生"],
+    ["food-daikon", 10.98, "source-wst-560-2017", "生"],
+    ["food-pineapple", 11.48, "source-wst-560-2017", "可食部"],
+    ["food-pomelo", 8.37, "source-wst-560-2017", "可食部"],
+    ["food-orange", 4.13, "source-wst-560-2017", "可食部"],
+    ["food-soy-milk", 63.17, "source-wst-560-2017", "熟"],
+    ["food-tofu", 68.63, "source-wst-560-2017", "熟"],
+    ["food-chicken-breast", 207.97, "source-wst-560-2017", "熟"],
+    ["food-pork", 137.84, "source-wst-560-2017", "生"],
+    ["food-chicken-liver", 317, "source-wst-560-2017", "熟"],
+    ["food-scallop", 193.44, "source-wst-560-2017", "可食部"],
+    ["food-shrimp", 187.4, "source-wst-560-2017", "熟"],
+    ["food-crab", 147, "source-wst-560-2017", "熟"],
+    ["food-grass-carp", 134.44, "source-wst-560-2017", "熟"],
+    ["food-dried-seaweed", 415.34, "source-wst-560-2017", "干制"],
+    ["food-broccoli", 70, "source-usda-purine-2025", "生"],
+    ["food-banana", 3, "source-usda-purine-2025", "生"],
+    ["food-udon", 12.1, "source-usda-purine-2025", "未注明"],
+    ["food-rice-raw", 32.6, "source-usda-purine-2025", "生"],
+    ["food-asparagus", 32.85, "source-usda-purine-2025", "生"],
+    ["food-avocado", 18.4, "source-usda-purine-2025", "生"],
+    ["food-yellow-croaker", 124.26, "source-wst-560-2017", "未注明"],
+    ["food-shiitake-dried", 311.55, "source-usda-purine-2025", "干制"],
+    ["food-soy-sauce", 50.25, "source-usda-purine-2025", "液态"],
+  ];
+  for (const [id, value, sourceId, state] of expectedValues) {
+    const food: any = foodsById.get(id);
+    assert.ok(food, `missing seeded food ${id}`);
+    assert.equal(food.purineMean, value, `${id} value`);
+    assert.equal(food.purineLow, value, `${id} lower bound`);
+    assert.equal(food.purineHigh, value, `${id} upper bound`);
+    assert.equal(food.sourceId, sourceId, `${id} source`);
+    assert.equal(food.state, state, `${id} state`);
+    assert.equal(food.verificationStatus, "PREPARED", `${id} status`);
+  }
+  db.close();
+});

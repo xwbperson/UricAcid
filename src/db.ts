@@ -68,6 +68,33 @@ const FOOD_SEEDS = [
   ["food-crab", "河蟹", "螃蟹", "food-seafood", "熟", 147],
   ["food-grass-carp", "草鱼", "", "food-seafood", "熟", 134.44],
   ["food-dried-seaweed", "紫菜（干）", "紫菜", "food-mushroom", "干制", 415.34],
+
+  // WS/T 560—2017 附录 A 中未与上面条目重复的常见中式食物。
+  ["food-duck-liver", "鸭肝", "", "food-organ", "未注明", 397.9],
+  ["food-goose-liver", "鹅肝", "", "food-organ", "未注明", 376.9],
+  ["food-pork-liver", "猪肝", "", "food-organ", "未注明", 275.21],
+  ["food-beef-liver", "牛肝", "", "food-organ", "未注明", 250.6],
+  ["food-lamb-liver", "羊肝", "", "food-organ", "未注明", 227.8],
+  ["food-beef-jerky", "牛肉干", "", "food-meat", "干制", 127.4],
+  ["food-yellow-croaker", "黄花鱼", "黄鱼", "food-seafood", "未注明", 124.26],
+  ["food-processed-donkey-meat", "驴肉加工制品", "驴肉", "food-meat", "加工制品", 117.4],
+  ["food-lamb", "羊肉", "", "food-meat", "未注明", 109.09],
+  ["food-mixed-beef", "肥瘦牛肉", "牛肉", "food-meat", "未注明", 104.7],
+  ["food-pork-floss", "猪肉松", "肉松", "food-meat", "加工制品", 76.25],
+  ["food-soybean", "黄豆", "大豆", "food-bean", "未注明", 218.19],
+  ["food-pumpkin-seed", "南瓜子", "南瓜籽", "food-nut", "未注明", 60.76],
+  ["food-mung-bean", "绿豆", "", "food-bean", "未注明", 195.78],
+  ["food-hazelnut-mushroom-dried", "榛蘑（干）", "榛蘑", "food-mushroom", "干制", 185.97],
+  ["food-hericium-dried", "猴头菇（干）", "猴头菌", "food-mushroom", "干制", 177.66],
+  ["food-soy-flour", "豆粉", "大豆粉", "food-bean", "干制", 167.49],
+  ["food-pecan", "山核桃", "小核桃", "food-nut", "未注明", 40.44],
+  ["food-sticky-rice", "糯米", "江米", "food-grain", "未注明", 50.38],
+  ["food-fragrant-rice", "香米", "", "food-grain", "未注明", 34.37],
+  ["food-yuba", "腐竹", "豆腐皮干", "food-bean", "干制", 159.87],
+  ["food-bean-skin", "豆皮", "豆腐皮", "food-bean", "未注明", 157.28],
+  ["food-red-kidney-bean", "红芸豆", "红腰豆", "food-bean", "未注明", 126.37],
+  ["food-cassava", "木薯", "树薯", "food-grain", "未注明", 10.45],
+  ["food-water-tofu", "水豆腐", "", "food-bean", "未注明", 67.57],
 ] as const;
 
 // 常见条目补充自 USDA/ODS Purine Database Release 2.0（2025）。
@@ -75,27 +102,141 @@ const FOOD_SEEDS = [
 // 因此这些条目保持 PREPARED，页面也会保留来源和口径说明。
 const COMMON_FOOD_SEEDS = [
   ["food-cabbage", "圆白菜", "卷心菜,甘蓝", "food-vegetable", "生", 3.2],
-  ["food-bok-choy", "小白菜", "青梗菜,白菜", "food-vegetable", "生", 12.4],
+  ["food-bok-choy", "小白菜", "青梗菜,白菜", "food-vegetable", "未注明", 12.4],
   ["food-broccoli", "西兰花", "绿花菜", "food-vegetable", "生", 70],
   ["food-cauliflower", "菜花", "花椰菜", "food-vegetable", "生", 57.2],
   ["food-cucumber", "黄瓜", "青瓜", "food-vegetable", "生", 9.4],
-  ["food-tomato", "番茄", "西红柿", "food-vegetable", "生", 6.6],
+  ["food-tomato", "番茄", "西红柿", "food-vegetable", "未注明", 6.6],
   ["food-eggplant", "茄子", "茄瓜", "food-vegetable", "生", 50.8],
-  ["food-green-beans", "四季豆", "豆角", "food-vegetable", "生", 7.5],
-  ["food-lettuce", "生菜", "莴苣叶", "food-vegetable", "生", 4.7],
+  ["food-green-beans", "四季豆", "豆角", "food-vegetable", "未注明", 7.5],
+  ["food-lettuce", "生菜", "莴苣叶", "food-vegetable", "未注明", 4.7],
   ["food-onion", "洋葱", "", "food-vegetable", "生", 2.2],
   ["food-pumpkin", "南瓜", "", "food-vegetable", "生", 56.7],
   ["food-spinach", "菠菜", "", "food-vegetable", "生", 51.3],
   ["food-bean-sprout", "豆芽", "绿豆芽", "food-vegetable", "生", 35],
   ["food-corn", "玉米", "玉米粒", "food-grain", "生", 11.8],
   ["food-potato", "马铃薯", "土豆", "food-grain", "生", 6.5],
-  ["food-white-bread", "白面包", "面包", "food-grain", "熟", 12.2],
-  ["food-udon", "乌冬面", "小麦面条", "food-grain", "熟", 12.1],
-  ["food-buckwheat-noodle", "荞麦面", "荞麦面条", "food-grain", "熟", 7.6],
-  ["food-egg", "鸡蛋", "", "food-egg-milk", "熟", 0],
+  ["food-white-bread", "白面包", "面包", "food-grain", "未注明", 12.2],
+  ["food-udon", "乌冬面", "小麦面条", "food-grain", "未注明", 12.1],
+  ["food-buckwheat-noodle", "荞麦面", "荞麦面条", "food-grain", "未注明", 7.6],
+  ["food-egg", "鸡蛋", "", "food-egg-milk", "生", 0],
   ["food-milk", "牛奶", "", "food-egg-milk", "液态", 0],
-  ["food-banana", "香蕉", "", "food-fruit", "可食部", 3],
-  ["food-strawberry", "草莓", "", "food-fruit", "可食部", 2.2],
+  ["food-banana", "香蕉", "", "food-fruit", "生", 3],
+  ["food-strawberry", "草莓", "", "food-fruit", "生", 2.2],
+
+  // 谷薯和主食：对应 USDA/ODS Release 2.0 的原始行名和状态；未写明状态的保留为“未注明”。
+  ["food-rice-raw", "普通大米（生）", "生大米,白米", "food-grain", "生", 32.6],
+  ["food-barley-raw", "大麦（生）", "大麦米", "food-grain", "生", 44.3],
+  ["food-wheat-flour", "小麦面粉", "面粉,白面", "food-grain", "干制", 25.8],
+  ["food-whole-wheat-flour", "全麦面粉", "全麦粉", "food-grain", "干制", 11.5],
+  ["food-buckwheat-flour", "荞麦粉", "荞麦面粉", "food-grain", "干制", 75.9],
+  ["food-baguette", "法棍面包", "法式面包", "food-grain", "未注明", 15.7],
+  ["food-spaghetti", "意大利面", "意面,直条面", "food-grain", "未注明", 6.8],
+  ["food-ramen", "拉面（面条）", "拉面", "food-grain", "未注明", 21.6],
+  ["food-taro", "芋头", "芋艿", "food-grain", "未注明", 1.8],
+  ["food-yam", "山药", "淮山", "food-grain", "未注明", 4],
+
+  // 蔬菜：保留生、熟、未注明三类状态，不把不同样本状态合成一个数值。
+  ["food-asparagus", "芦笋", "石刁柏", "food-vegetable", "生", 32.85],
+  ["food-bitter-melon", "苦瓜", "凉瓜", "food-vegetable", "生", 9.9],
+  ["food-bamboo-shoot", "竹笋", "笋", "food-vegetable", "生", 47.15],
+  ["food-garlic-chives", "韭菜", "", "food-vegetable", "生", 19.4],
+  ["food-garlic", "大蒜", "蒜头", "food-vegetable", "生", 17],
+  ["food-ginger", "生姜", "姜", "food-vegetable", "生", 2.3],
+  ["food-scallion", "大葱", "葱,青葱", "food-vegetable", "生", 41.4],
+  ["food-okra", "秋葵", "羊角豆", "food-vegetable", "生", 39.51],
+  ["food-lotus-root", "莲藕", "藕", "food-vegetable", "未注明", 0.3],
+  ["food-turnip", "芜菁", "大头菜,蔓菁", "food-vegetable", "未注明", 3.9],
+  ["food-zucchini", "西葫芦", "角瓜", "food-vegetable", "生", 13.1],
+  ["food-green-pepper", "青椒", "青辣椒", "food-vegetable", "未注明", 2.3],
+  ["food-sweet-green-pepper", "青甜椒", "青灯笼椒", "food-vegetable", "生", 69.1],
+  ["food-red-pepper", "红椒", "红辣椒", "food-vegetable", "未注明", 5.1],
+  ["food-red-paprika", "红彩椒", "红甜椒", "food-vegetable", "未注明", 1.1],
+  ["food-coriander", "香菜", "芫荽", "food-vegetable", "未注明", 39.4],
+  ["food-chrysanthemum-greens", "茼蒿", "菊花菜", "food-vegetable", "未注明", 47.1],
+  ["food-cherry-tomato", "樱桃番茄", "小番茄", "food-vegetable", "生", 3.1],
+  ["food-broccoli-cooked", "西兰花（熟）", "熟西兰花", "food-vegetable", "熟", 51.82],
+  ["food-spinach-cooked", "菠菜（熟）", "熟菠菜", "food-vegetable", "熟", 39.18],
+  ["food-yellow-bean-sprout", "黄豆芽", "大豆芽", "food-vegetable", "生", 57.4],
+
+  // 菌菇和藻类：官方表将其列在蔬菜或海藻条目中，产品中归入独立的菌菇/藻类分组。
+  ["food-shiitake-fresh", "香菇（鲜）", "鲜香菇", "food-mushroom", "生", 23.1],
+  ["food-shiitake-dried", "香菇（干）", "干香菇", "food-mushroom", "干制", 311.55],
+  ["food-enoki", "金针菇", "", "food-mushroom", "生", 49.3],
+  ["food-king-oyster-mushroom", "杏鲍菇", "刺芹菇", "food-mushroom", "生", 13.44],
+  ["food-oyster-mushroom", "平菇", "蚝菇", "food-mushroom", "生", 66.7],
+  ["food-wood-ear-dried", "木耳（干）", "黑木耳", "food-mushroom", "干制", 155.7],
+  ["food-kombu-dried", "海带（干）", "昆布", "food-mushroom", "干制", 46.4],
+  ["food-wakame-raw", "裙带菜（生）", "海带芽", "food-mushroom", "生", 262.3],
+
+  // 水果：Release 2.0 的食品表中可直接映射的常见水果条目较少，暂不从其他网页拼接数值。
+  ["food-avocado", "牛油果", "鳄梨", "food-fruit", "生", 18.4],
+  ["food-goji-berry", "枸杞", "枸杞子", "food-fruit", "未注明", 5.52],
+
+  // 豆类及豆制品。
+  ["food-edamame", "毛豆", "青大豆", "food-bean", "未注明", 48],
+  ["food-green-pea", "青豌豆", "豌豆粒", "food-bean", "未注明", 21.9],
+  ["food-podded-pea", "豌豆荚", "荷兰豆", "food-bean", "未注明", 10.4],
+  ["food-broad-bean-dried", "蚕豆（干）", "胡豆", "food-bean", "干制", 35.5],
+  ["food-adzuki-bean-dried", "红小豆（干）", "赤小豆", "food-bean", "干制", 77.6],
+  ["food-soybean-dried", "黄豆（干）", "大豆", "food-bean", "干制", 172.5],
+  ["food-chickpea-cooked", "鹰嘴豆（熟）", "鸡豆", "food-bean", "熟", 11.2],
+  ["food-natto", "纳豆", "发酵大豆", "food-bean", "熟", 113.9],
+  ["food-soft-tofu", "嫩豆腐", "内酯豆腐", "food-bean", "熟", 20],
+
+  // 畜禽肉和加工肉制品。
+  ["food-chicken-breast-raw", "鸡胸肉（生）", "生鸡胸", "food-meat", "生", 141.3],
+  ["food-chicken-leg-raw", "鸡腿肉（生）", "生鸡腿", "food-meat", "生", 118.2],
+  ["food-chicken-wing-raw", "鸡翅（生）", "生鸡翅", "food-meat", "生", 137.5],
+  ["food-ham", "火腿", "火腿肉", "food-meat", "未注明", 69.4],
+  ["food-bacon", "培根", "腊肉片", "food-meat", "未注明", 61.8],
+  ["food-vienna-sausage", "维也纳香肠", "香肠", "food-meat", "未注明", 45.5],
+
+  // 动物内脏。
+  ["food-chicken-gizzard-raw", "鸡胗（生）", "鸡肫,生鸡胗", "food-organ", "生", 142.9],
+  ["food-chicken-heart-raw", "鸡心（生）", "生鸡心", "food-organ", "生", 224],
+  ["food-chicken-liver-raw", "鸡肝（生）", "生鸡肝", "food-organ", "生", 243],
+
+  // 水产和海鲜：优先保留鱼种、部位和生熟状态明确的常见条目。
+  ["food-shrimp-raw", "虾（生）", "生虾", "food-seafood", "生", 166.5],
+  ["food-squid-raw", "鱿鱼（生）", "生鱿鱼", "food-seafood", "生", 150.8],
+  ["food-salmon-raw", "三文鱼（生）", "鲑鱼", "food-seafood", "生", 124.7],
+  ["food-mackerel-raw", "青花鱼（生）", "鲭鱼", "food-seafood", "生", 204.8],
+  ["food-tuna-raw", "金枪鱼（生）", "吞拿鱼", "food-seafood", "生", 157.2],
+  ["food-eel-raw", "鳗鱼（生）", "鳗鲡", "food-seafood", "生", 92.1],
+  ["food-carp-raw", "鲤鱼（生）", "鲤鱼", "food-seafood", "生", 103.2],
+  ["food-sea-bass-raw", "鲈鱼（生）", "鲈鱼", "food-seafood", "生", 107.3],
+  ["food-hairtail-fresh", "带鱼（鲜）", "带鱼", "food-seafood", "鲜", 385.5],
+  ["food-clam-raw", "蛤蜊（生）", "花蛤", "food-seafood", "生", 110.2],
+  ["food-oyster-raw", "牡蛎（生）", "生蚝", "food-seafood", "生", 122],
+  ["food-scallop-raw", "扇贝（生）", "生扇贝", "food-seafood", "生", 76.5],
+  ["food-sea-cucumber-raw", "海参（生）", "生海参", "food-seafood", "生", 7.72],
+  ["food-octopus-raw", "章鱼（生）", "八爪鱼", "food-seafood", "生", 137.2],
+
+  // 蛋奶。
+  ["food-quail-egg", "鹌鹑蛋", "", "food-egg-milk", "生", 0],
+  ["food-yogurt", "原味酸奶", "酸奶", "food-egg-milk", "未注明", 5.2],
+  ["food-low-fat-milk", "低脂牛奶", "2%牛奶", "food-egg-milk", "液态", 0.6],
+  ["food-cheese", "奶酪", "芝士", "food-egg-milk", "未注明", 13],
+
+  // 坚果和种子。
+  ["food-peanut-raw", "花生（生）", "落花生", "food-nut", "生", 49.1],
+  ["food-almond", "杏仁", "巴旦木", "food-nut", "未注明", 31.4],
+  ["food-walnut", "核桃", "胡桃", "food-nut", "未注明", 19.6],
+  ["food-sesame", "芝麻", "", "food-nut", "未注明", 36.3],
+
+  // 汤料和调味品：仅收录官方表中有明确条目的成品/干制项。
+  ["food-chinese-soup-powder", "中式汤粉（干）", "中式汤料", "food-soup", "干制", 185.9],
+  ["food-chinese-stock-powder", "中式高汤粉（干）", "高汤粉", "food-soup", "干制", 508.9],
+  ["food-potage-powder", "浓汤粉（干）", "浓汤料", "food-soup", "干制", 37.6],
+  ["food-soy-sauce", "酱油", "生抽,老抽", "food-other", "液态", 50.25],
+  ["food-oyster-sauce", "蚝油", "牡蛎酱", "food-other", "液态", 134.4],
+  ["food-ketchup", "番茄酱", "", "food-other", "液态", 10.6],
+  ["food-mayonnaise", "蛋黄酱", "沙拉酱", "food-other", "液态", 0.6],
+  ["food-chili-bean-sauce", "豆瓣酱", "辣豆瓣酱", "food-other", "液态", 8.8],
+  ["food-mustard", "芥末酱", "芥末", "food-other", "液态", 25.3],
+  ["food-curry-roux", "咖喱块", "咖喱酱", "food-other", "固态", 16],
+  ["food-fish-sauce", "鱼露", "鱼酱油", "food-other", "液态", 93.1],
 ] as const;
 
 const RECIPE_SEEDS = [
@@ -420,8 +561,9 @@ function insertSeedSource(db: DB) {
     "示例种子数据来源登记；每条记录仍需逐项复核后才能标记 VERIFIED。",
     timestamp,
   );
-  db.prepare("UPDATE reference_sources SET url = ? WHERE id = ?").run(
+  db.prepare("UPDATE reference_sources SET url = ?, usage_note = ? WHERE id = ?").run(
     "https://www.nhc.gov.cn/wjw/yingyang/201708/93b17b29518447ccb194188ab9a7335b/files/1739783557085_80487.pdf",
+    "食物种子数据来自附录 A；原表单位为 mg/kg，内置时换算为 mg/100g；每条记录仍需逐项复核后才能标记 VERIFIED。",
     "source-wst-560-2017",
   );
   db.prepare("INSERT OR IGNORE INTO reference_sources (id, title, publisher, version, url, usage_note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
@@ -432,6 +574,10 @@ function insertSeedSource(db: DB) {
     "https://www.nhc.gov.cn/sps/c100088/202402/9ba512ba8e314a47a181db11d2fa188d.shtml",
     "用于记录页的一般食养参考：食物多样、蔬菜和饮水等；不自动生成个人诊疗目标。",
     timestamp,
+  );
+  db.prepare("UPDATE reference_sources SET usage_note = ? WHERE id = ?").run(
+    "补充常见食物的跨分类参考；数值为 USDA/ODS Release 2.0 Table 1/2 的四种嘌呤碱基总量（mg/100g），与 WS/T 560 的检测口径不同；官方未注明保存状态的条目保留为“未注明”，暂保持 PREPARED。",
+    "source-usda-purine-2025",
   );
   db.prepare("INSERT OR IGNORE INTO reference_sources (id, title, publisher, version, url, usage_note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
     "source-usda-purine-2025",
@@ -473,14 +619,17 @@ function insertSeedSource(db: DB) {
 function insertSeedFoods(db: DB) {
   const timestamp = now();
   const foodInsert = db.prepare("INSERT OR IGNORE INTO foods (id, name, aliases, group_id, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
-  const versionInsert = db.prepare("INSERT OR IGNORE INTO food_versions (id, food_id, version_no, basis_g, purine_low, purine_mean, purine_high, range_type, source_id, verification_status, notes, created_at) VALUES (?, ?, 1, 100, ?, ?, ?, 'single_point', 'source-wst-560-2017', 'PREPARED', '规格示例种子，尚未逐项人工复核。', ?)");
+  const foodSync = db.prepare("UPDATE foods SET name = ?, aliases = ?, group_id = ?, state = ?, updated_at = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM food_versions WHERE food_id = ? AND version_no > 1)");
+  const versionInsert = db.prepare("INSERT OR IGNORE INTO food_versions (id, food_id, version_no, basis_g, purine_low, purine_mean, purine_high, range_type, source_id, verification_status, notes, created_at) VALUES (?, ?, 1, 100, ?, ?, ?, 'single_point', 'source-wst-560-2017', 'PREPARED', '来源为 WS/T 560—2017 附录 A；原表单位 mg/kg，已换算为 mg/100g；尚未逐项人工复核。', ?)");
   for (const [id, name, aliases, groupId, state, value] of FOOD_SEEDS) {
     foodInsert.run(id, name, aliases, groupId, state, timestamp, timestamp);
+    foodSync.run(name, aliases, groupId, state, timestamp, id, id);
     versionInsert.run(`${id}-v1`, id, value, value, value, timestamp);
   }
-  const commonVersionInsert = db.prepare("INSERT OR IGNORE INTO food_versions (id, food_id, version_no, basis_g, purine_low, purine_mean, purine_high, range_type, source_id, verification_status, notes, created_at) VALUES (?, ?, 1, 100, ?, ?, ?, 'single_point', 'source-usda-purine-2025', 'PREPARED', 'USDA/ODS Release 2.0 四种嘌呤碱基总量；与 WS/T 560 口径不同，尚未逐项人工复核。', ?)");
+  const commonVersionInsert = db.prepare("INSERT OR IGNORE INTO food_versions (id, food_id, version_no, basis_g, purine_low, purine_mean, purine_high, range_type, source_id, verification_status, notes, created_at) VALUES (?, ?, 1, 100, ?, ?, ?, 'single_point', 'source-usda-purine-2025', 'PREPARED', 'USDA/ODS Release 2.0 Table 1/2 四种嘌呤碱基总量；与 WS/T 560 口径不同；官方行未注明保存状态的条目保留为“未注明”；尚未逐项人工复核。', ?)");
   for (const [id, name, aliases, groupId, state, value] of COMMON_FOOD_SEEDS) {
     foodInsert.run(id, name, aliases, groupId, state, timestamp, timestamp);
+    foodSync.run(name, aliases, groupId, state, timestamp, id, id);
     commonVersionInsert.run(`${id}-v1`, id, value, value, value, timestamp);
   }
 }
