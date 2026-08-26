@@ -138,6 +138,17 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .row-actions { display: flex; gap: 2px; margin-left: 8px; }
 .row-actions button { min-width: 44px; min-height: 44px; border: 0; background: transparent; color: var(--muted); padding: 8px 5px; font-size: 12px; }
 .row-actions button:hover { color: var(--orange); }
+.history-list { display: grid; gap: 10px; }
+.history-day { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(170px, auto) 24px; align-items: center; gap: 16px; padding: 16px; border: 1px solid var(--line); border-radius: 13px; background: var(--paper); color: var(--ink); text-align: left; font: inherit; appearance: none; -webkit-appearance: none; transition: transform .18s ease, background .18s ease, border-color .18s ease; }
+.history-day:hover { transform: translateY(-1px); background: var(--orange-soft); border-color: var(--orange); }
+.history-day:active { transform: translateY(0); }
+.history-day-main { min-width: 0; }
+.history-day strong { display: block; font-size: 14px; line-height: 1.35; }
+.history-day small { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.history-day-right { min-width: 0; display: grid; justify-items: end; gap: 5px; text-align: right; }
+.history-day-right strong { font-family: var(--mono); font-size: 13px; letter-spacing: -.02em; }
+.history-day-right small { margin-top: 0; white-space: nowrap; }
+.history-day-arrow { display: grid; place-items: center; color: var(--orange); font-family: var(--serif); font-size: 25px; line-height: 1; }
 .treatment-day-heading { margin-top: 34px; }
 .treatment-day-preview { display: grid; gap: 0; }
 .treatment-compact-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 11px 4px; border-bottom: 1px solid var(--line); }
@@ -393,6 +404,11 @@ input::placeholder, textarea::placeholder { color: #737970; }
   .treatment-result-input { grid-template-columns: 1fr; padding-right: 42px; }
   .treatment-date-heading time { font-size: 16px; }
   .treatment-date-heading span { font-size: 9px; }
+  .history-day { grid-template-columns: minmax(0, 1fr) 22px; gap: 8px 12px; padding: 14px 13px; }
+  .history-day-main { grid-column: 1; grid-row: 1; }
+  .history-day-right { grid-column: 1; grid-row: 2; display: flex; align-items: baseline; justify-content: flex-start; gap: 8px; text-align: left; }
+  .history-day-right small { white-space: normal; }
+  .history-day-arrow { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
   .date-control { width: 100%; justify-content: space-between; }
   .library-filter { display: grid; align-items: stretch; gap: 6px; }
   .library-filter select { width: 100%; }
