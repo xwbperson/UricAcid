@@ -196,8 +196,8 @@ test("portable export excludes sessions and restore invalidates all devices", as
   const exportResponse = await agent.get("/api/backup/export.json");
   assert.equal(exportResponse.status, 200);
   assert.equal(exportResponse.body.appVersion, "0.1.0");
-  assert.equal(exportResponse.body.schemaVersion, 4);
-  assert.equal(exportResponse.body.manifest.schemaVersion, 4);
+  assert.equal(exportResponse.body.schemaVersion, 5);
+  assert.equal(exportResponse.body.manifest.schemaVersion, 5);
   assert.equal(exportResponse.body.manifest.containsSecrets, false);
   assert.equal("trusted_device_sessions" in exportResponse.body.data, false);
   assert.equal(exportResponse.body.data.treatment_events.length, 1);

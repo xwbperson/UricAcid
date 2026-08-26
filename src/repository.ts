@@ -107,6 +107,12 @@ function requireTreatmentType(value: unknown) {
   return eventType;
 }
 
+function requireMedicineKind(value: unknown) {
+  const kind = String(value || "");
+  if (!["oral_medication", "topical_medication"].includes(kind)) throw new Error("药品类型无效");
+  return kind;
+}
+
 function rowWithSnapshot(row: any) {
   return {
     id: row.id,
@@ -176,6 +182,7 @@ export class Repository {
       WHERE b.archived_at IS NULL AND (b.name LIKE ? OR b.aliases LIKE ? OR COALESCE(bg.name, '') LIKE ?)
       ORDER BY b.system DESC, b.name
     `).all(pattern, pattern, pattern).map((row: any) => this.beveragePublic(row));
+    const medicines = this.listMedicines();
     return {
       settings: this.settings(),
       groups: {
@@ -186,12 +193,14 @@ export class Repository {
       foods,
       recipes,
       beverages,
+      medicines,
       portions: this.db.prepare("SELECT * FROM portion_presets ORDER BY kind, sort_order, value").all(),
       sources: this.db.prepare("SELECT * FROM reference_sources ORDER BY created_at DESC").all(),
       counts: {
         foods: this.db.prepare("SELECT COUNT(*) AS count FROM foods WHERE archived_at IS NULL").get().count,
         recipes: this.db.prepare("SELECT COUNT(*) AS count FROM recipes WHERE archived_at IS NULL").get().count,
         beverages: this.db.prepare("SELECT COUNT(*) AS count FROM beverages WHERE archived_at IS NULL").get().count,
+        medicines: this.db.prepare("SELECT COUNT(*) AS count FROM medicines WHERE archived_at IS NULL").get().count,
       },
       latestBackup: this.db.prepare("SELECT id, created_at, status, sha256, replica_status, verified_at FROM backup_records WHERE backup_type = 'sqlite_snapshot' ORDER BY created_at DESC LIMIT 1").get() || null,
       backupAlert: this.db.prepare("SELECT id, created_at, status, note FROM backup_records WHERE status IN ('REPLICA_FAILED', 'FAILED') OR replica_status = 'FAILED' ORDER BY created_at DESC LIMIT 1").get() || null,
@@ -254,6 +263,25 @@ export class Repository {
       system: Boolean(row.system),
       notes: row.notes,
     };
+  }
+
+  medicinePublic(row: any) {
+    return {
+      id: row.id,
+      name: row.name,
+      aliases: row.aliases,
+      kind: row.kind,
+      kindLabel: TREATMENT_EVENT_LABELS[row.kind] || row.kind,
+      notes: row.notes,
+      archivedAt: row.archived_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  listMedicines(includeArchived = false) {
+    const where = includeArchived ? "" : "WHERE archived_at IS NULL";
+    return this.db.prepare(`SELECT * FROM medicines ${where} ORDER BY CASE kind WHEN 'oral_medication' THEN 0 ELSE 1 END, name`).all().map((row: any) => this.medicinePublic(row));
   }
 
   getDay(dateInput: unknown) {
@@ -532,6 +560,7 @@ export class Repository {
       severity: row.severity,
       symptomState: row.symptom_state,
       symptomDescription: row.symptom_description,
+      medicineId: row.medicine_id,
       medicineName: row.medicine_name,
       dosage: row.dosage,
       dosageUnit: row.dosage_unit,
@@ -645,6 +674,16 @@ export class Repository {
         fields.end_date = null;
       }
       if (!["hospital_check", "follow_up"].includes(eventType)) fields.follow_up_date = null;
+    }
+    const medicineIdProvided = payload.medicineId !== undefined;
+    const requestedMedicineId = medicineIdProvided ? optionalText(payload.medicineId) : current?.event_type === eventType ? current?.medicine_id ?? null : null;
+    fields.medicine_id = null;
+    if (["oral_medication", "topical_medication"].includes(eventType) && requestedMedicineId) {
+      const medicine = this.db.prepare("SELECT id, name, kind, archived_at FROM medicines WHERE id = ?").get(requestedMedicineId);
+      if (!medicine || (medicine.archived_at && medicineIdProvided)) throw new Error("药品不存在或已归档");
+      if (medicine.kind !== eventType) throw new Error("所选药品类型与治疗记录不一致");
+      fields.medicine_id = medicine.id;
+      if (!fields.medicine_name) fields.medicine_name = medicine.name;
     }
     return fields;
   }
@@ -894,6 +933,40 @@ export class Repository {
     if (current.system) throw new Error("系统预置饮品不能删除");
     const at = timestamp();
     this.db.prepare("UPDATE beverages SET archived_at = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").run(at, at, id);
+  }
+
+  createMedicine(payload: any) {
+    const name = optionalText(payload.name);
+    if (!name) throw new Error("药品名称不能为空");
+    const kind = requireMedicineKind(payload.kind);
+    const id = uuid();
+    const at = timestamp();
+    this.db.prepare("INSERT INTO medicines (id, name, aliases, kind, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(id, name, optionalText(payload.aliases) || "", kind, optionalText(payload.notes), at, at);
+    return this.medicinePublic(this.db.prepare("SELECT * FROM medicines WHERE id = ?").get(id));
+  }
+
+  updateMedicine(id: string, payload: any) {
+    const current = this.db.prepare("SELECT * FROM medicines WHERE id = ? AND archived_at IS NULL").get(id);
+    if (!current) throw new Error("药品不存在或已归档");
+    const name = payload.name === undefined ? current.name : optionalText(payload.name);
+    if (!name) throw new Error("药品名称不能为空");
+    const kind = payload.kind === undefined ? current.kind : requireMedicineKind(payload.kind);
+    if (kind !== current.kind) {
+      const usage = this.db.prepare("SELECT COUNT(*) AS count FROM treatment_events WHERE medicine_id = ?").get(id);
+      if (usage.count) throw new Error("已被治疗记录使用的药品不能直接修改类型，请新建另一类型药品");
+    }
+    const aliases = payload.aliases === undefined ? current.aliases : optionalText(payload.aliases) || "";
+    const notes = payload.notes === undefined ? current.notes : optionalText(payload.notes);
+    const at = timestamp();
+    this.db.prepare("UPDATE medicines SET name = ?, aliases = ?, kind = ?, notes = ?, updated_at = ? WHERE id = ?").run(name, aliases, kind, notes, at, id);
+    return this.medicinePublic(this.db.prepare("SELECT * FROM medicines WHERE id = ?").get(id));
+  }
+
+  archiveMedicine(id: string) {
+    const current = this.db.prepare("SELECT id, archived_at FROM medicines WHERE id = ?").get(id);
+    if (!current || current.archived_at) throw new Error("药品不存在或已归档");
+    const at = timestamp();
+    this.db.prepare("UPDATE medicines SET archived_at = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").run(at, at, id);
   }
 
   createGroup(kind: string, payload: any) {

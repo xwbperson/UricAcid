@@ -73,7 +73,7 @@ function asyncRoute(handler: (request: Request, response: Response, next: NextFu
 
 function handleError(error: any, _request: Request, response: Response, _next: NextFunction) {
   const message = error instanceof Error ? error.message : "请求处理失败";
-  const status = Number.isInteger(error?.statusCode) ? error.statusCode : /不存在|不能为空|必须|不支持|不能|格式|需要|范围|口令|重置|模板|删除/.test(message) ? 400 : 500;
+  const status = Number.isInteger(error?.statusCode) ? error.statusCode : /不存在|不能为空|必须|不支持|不能|不一致|无效|格式|需要|范围|口令|重置|模板|删除/.test(message) ? 400 : 500;
   const database = (response.req.app as any).locals?.db;
   if (database) {
     try { recordAudit(database, "request.failure", _request, { path: _request.path, errorCode: error?.code || message.slice(0, 80) }); } catch { /* auditing must not hide the original failure */ }
@@ -215,6 +215,11 @@ export function createApp(options: AppOptions = {}) {
     recordAudit(db, "treatment.delete", request, { eventId: id });
     return response.json({ ok: true });
   });
+
+  app.get("/api/medicines", requireAuth, (request, response) => response.json({ medicines: repository.listMedicines(request.query.includeArchived === "true") }));
+  app.post("/api/medicines", requireAuth, requireCsrf, (request, response) => response.status(201).json(repository.createMedicine(ensureBodyObject(request))));
+  app.put("/api/medicines/:id", requireAuth, requireCsrf, (request, response) => response.json(repository.updateMedicine(String(request.params.id), ensureBodyObject(request))));
+  app.delete("/api/medicines/:id", requireAuth, requireCsrf, (request, response) => { const id = String(request.params.id); repository.archiveMedicine(id); recordAudit(db, "medicine.archive", request, { medicineId: id }); response.json({ ok: true, archived: true }); });
 
   app.post("/api/foods", requireAuth, requireCsrf, (request, response) => response.status(201).json(repository.createFood(ensureBodyObject(request))));
   app.put("/api/foods/:id", requireAuth, requireCsrf, (request, response) => response.json(repository.updateFood(String(request.params.id), ensureBodyObject(request))));

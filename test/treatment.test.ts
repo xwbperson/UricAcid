@@ -87,10 +87,11 @@ test("treatment date rules and old export compatibility preserve data", async ()
   assert.equal(planned.status, 201);
 
   const exported = (await agent.get("/api/backup/export.json")).body;
-  assert.equal(exported.schemaVersion, 4);
+  assert.equal(exported.schemaVersion, 5);
   assert.ok(Array.isArray(exported.data.treatment_events));
   assert.ok(Array.isArray(exported.data.treatment_event_results));
   const oldPayload = JSON.parse(JSON.stringify(exported));
+  delete oldPayload.data.medicines;
   delete oldPayload.data.treatment_events;
   delete oldPayload.data.treatment_event_results;
   oldPayload.manifest.dataSha256 = crypto.createHash("sha256").update(Buffer.from(JSON.stringify(oldPayload.data))).digest("hex");

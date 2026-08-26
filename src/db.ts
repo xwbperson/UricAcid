@@ -445,6 +445,17 @@ CREATE TABLE IF NOT EXISTS urate_measurements (
   deleted_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_urate_date ON urate_measurements(measured_date, deleted_at);
+CREATE TABLE IF NOT EXISTS medicines (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  aliases TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL CHECK (kind IN ('oral_medication', 'topical_medication')),
+  notes TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  archived_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_medicines_kind ON medicines(kind, archived_at, name);
 CREATE TABLE IF NOT EXISTS treatment_events (
   id TEXT PRIMARY KEY,
   client_id TEXT NOT NULL UNIQUE,
@@ -457,6 +468,7 @@ CREATE TABLE IF NOT EXISTS treatment_events (
   severity REAL CHECK (severity IS NULL OR (severity >= 0 AND severity <= 10)),
   symptom_state TEXT,
   symptom_description TEXT,
+  medicine_id TEXT REFERENCES medicines(id) ON DELETE SET NULL,
   medicine_name TEXT,
   dosage TEXT,
   dosage_unit TEXT,
@@ -684,9 +696,10 @@ function migrate(db: DB) {
   ensureColumn(db, "backup_records", "replica_sha256", "TEXT");
   ensureColumn(db, "backup_records", "replica_status", "TEXT");
   ensureColumn(db, "diet_entries", "group_id_snapshot", "TEXT");
+  ensureColumn(db, "treatment_events", "medicine_id", "TEXT REFERENCES medicines(id) ON DELETE SET NULL");
   const version = db.prepare("SELECT version FROM schema_meta LIMIT 1").get();
-  if (!version) db.prepare("INSERT INTO schema_meta (version) VALUES (4)").run();
-  else if (version.version < 4) db.prepare("UPDATE schema_meta SET version = 4").run();
+  if (!version) db.prepare("INSERT INTO schema_meta (version) VALUES (5)").run();
+  else if (version.version < 5) db.prepare("UPDATE schema_meta SET version = 5").run();
 }
 
 export function openDatabase(filePath = path.join(config.dataDir, "app.db")): DB {
@@ -722,6 +735,7 @@ export function cloneData(db: DB) {
     "recipe_ingredients",
     "beverage_groups",
     "beverages",
+    "medicines",
     "portion_presets",
     "diet_entries",
     "beverage_entries",
@@ -738,7 +752,7 @@ export function validateExportPayload(payload: any) {
   if (!payload || payload.format !== "uric-acid-export" || payload.formatVersion !== "1") throw invalidExport("导出文件格式或版本不受支持");
   if (!payload.data || typeof payload.data !== "object") throw invalidExport("导出文件缺少数据区");
   const required = ["app_settings", "reference_sources", "food_groups", "foods", "food_versions", "recipe_groups", "recipes", "recipe_versions", "recipe_ingredients", "beverage_groups", "beverages", "portion_presets", "diet_entries", "beverage_entries", "urate_measurements"];
-  const optional = ["treatment_events", "treatment_event_results"];
+  const optional = ["medicines", "treatment_events", "treatment_event_results"];
   for (const table of required) if (!Array.isArray(payload.data[table])) throw invalidExport(`导出文件缺少 ${table}`);
   const unknownTables = Object.keys(payload.data).filter((table) => !required.includes(table) && !optional.includes(table));
   if (unknownTables.length) throw invalidExport(`导出文件包含不支持的数据表：${unknownTables.join(", ")}`);
@@ -755,6 +769,7 @@ export function replaceData(db: DB, data: Record<string, any[]>) {
   const tableOrder = [
     "treatment_event_results",
     "treatment_events",
+    "medicines",
     "diet_entries",
     "beverage_entries",
     "urate_measurements",

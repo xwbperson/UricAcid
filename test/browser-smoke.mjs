@@ -127,7 +127,7 @@ try {
 
   await page.locator('[data-action="open-diet"][data-kind="food"]').click();
   await page.locator('[data-form="diet"] .picker-search').fill('西兰花');
-  await page.locator('[data-form="diet"] .picker-option').filter({ hasText: '西兰花' }).click();
+  await page.locator('[data-form="diet"] .picker-option[data-item-name="西兰花"]').click();
   await page.locator('[data-form="diet"] [name="quantityG"]').fill('400');
   await page.locator('[data-form="diet"] button[type="submit"]').click();
   await page.waitForTimeout(250);
@@ -257,6 +257,35 @@ try {
   await smokeGroupRow.locator('[data-action="delete-group"]').click();
   await page.waitForTimeout(250);
   assert.equal(await page.locator('[data-group-manager="food"] .library-item').filter({ hasText: smokeGroupName }).count(), 0);
+  await page.locator('[data-action="manage-tab"][data-tab="medicine"]').click();
+  assert.equal(await page.locator('[data-library-list="medicine"]').count(), 1);
+  assert.match(await page.locator('.view-container').innerText(), /常用药品/);
+  const smokeOralMedicine = '烟测口服药';
+  await page.locator('[data-action="open-medicine-form"]:not([data-id])').click();
+  await page.locator('[data-form="medicine"] [name="kind"]').selectOption('oral_medication');
+  await page.locator('[data-form="medicine"] [name="name"]').fill(smokeOralMedicine);
+  await page.locator('[data-form="medicine"] [name="aliases"]').fill('烟测简称');
+  await page.locator('[data-form="medicine"] button[type="submit"]').click();
+  await page.waitForTimeout(250);
+  const smokeOralMedicineId = await page.locator('[data-library-list="medicine"] .library-item').filter({ hasText: smokeOralMedicine }).locator('[data-action="open-medicine-form"]').getAttribute('data-id');
+  assert.ok(smokeOralMedicineId);
+  const smokeTopicalMedicine = '烟测外用药';
+  await page.locator('[data-action="open-medicine-form"]:not([data-id])').click();
+  await page.locator('[data-form="medicine"] [name="kind"]').selectOption('topical_medication');
+  await page.locator('[data-form="medicine"] [name="name"]').fill(smokeTopicalMedicine);
+  await page.locator('[data-form="medicine"] button[type="submit"]').click();
+  await page.waitForTimeout(250);
+  await page.locator('.bottom-nav-item[data-route="treatment"]').click();
+  await page.locator('[data-action="open-treatment"]').click();
+  await page.locator('[data-form="treatment"] [name="eventType"]').selectOption('oral_medication');
+  const treatmentMedicineOptions = await page.locator('[data-form="treatment"] [name="medicineId"] option').allTextContents();
+  assert.equal(treatmentMedicineOptions.some((label) => label.includes(smokeOralMedicine)), true);
+  assert.equal(treatmentMedicineOptions.some((label) => label.includes(smokeTopicalMedicine)), false);
+  await page.locator('[data-form="treatment"] [name="medicineId"]').selectOption(smokeOralMedicineId);
+  assert.equal(await page.locator('[data-form="treatment"] [name="medicineName"]').inputValue(), smokeOralMedicine);
+  await page.locator('.modal-close').click();
+  await page.waitForTimeout(100);
+  await page.locator('.bottom-nav-item[data-route="manage"]').click();
   await page.locator('[data-action="manage-tab"][data-tab="recipe"]').click();
   assert.equal(await page.locator('[data-group-manager="recipe"]').count(), 1);
   assert.match(await page.locator('[data-library-list="recipe"]').innerText(), /番茄炒蛋/);
@@ -332,7 +361,7 @@ try {
   assert.equal(await desktop.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   await desktop.close();
   assert.deepEqual(consoleErrors, []);
-  console.log('browser smoke passed: mobile + desktop login, food, beverage, urate, stats, manage');
+  console.log('browser smoke passed: mobile + desktop login, food, beverage, urate, treatment, medicines, stats, manage');
 } finally {
   await browser.close();
 }

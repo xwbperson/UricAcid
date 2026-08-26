@@ -160,6 +160,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .treatment-intro { align-items: center; }
 .treatment-intro > div { min-width: 0; }
 .treatment-intro .button { flex: 0 0 auto; }
+.treatment-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; flex: 0 0 auto; }
+.treatment-actions .button { flex: 0 0 auto; }
 .treatment-filter-panel { margin-bottom: 14px; padding: 0; overflow: hidden; }
 .filter-summary, .guidance-summary, .settings-section > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 64px; padding: 16px 20px; }
 .filter-summary::-webkit-details-marker, .guidance-summary::-webkit-details-marker, .settings-section > summary::-webkit-details-marker { display: none; }
@@ -394,6 +396,8 @@ input::placeholder, textarea::placeholder { color: #737970; }
   .page-intro h3 { font-size: 27px; margin-top: 3px; }
   .page-intro p { font-size: 13px; line-height: 1.6; }
   .treatment-intro .button { width: 100%; }
+  .treatment-actions { display: grid; width: 100%; }
+  .treatment-actions .button { width: 100%; }
   .treatment-filters { grid-template-columns: 1fr; }
   .treatment-filter-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .treatment-filter-actions .button { width: 100%; }
