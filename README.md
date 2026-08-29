@@ -6,6 +6,8 @@
 
 治疗记录页可以按事件类型维护过程，并在管理页维护自己的口服药/外用药常用资料。新建对应类型的用药记录时可以直接选择，剂量、频次和起止日期仍按每次实际情况填写；药品资料不代表医学推荐，归档不会影响历史记录。
 
+应用入口已统一声明品牌图标和 PWA 资源：`public/favicon.svg` / `public/favicon.ico` 用于浏览器，`public/icons/apple-touch-icon.png` 提供 iPhone 主屏图标，`public/icons/icon-192.png` 与 `public/icons/icon-512.png` 提供 Android/Chrome 安装图标，`public/manifest.webmanifest` 保存 Web App 清单。所有位图均从同一份三柱观察趋势 SVG 母版导出。
+
 当前参考库预置 157 项常见食物，覆盖主食/谷薯、蔬菜、水果、豆类及豆制品、菌菇藻类、肉类、内脏、海鲜、蛋奶、坚果、汤料和调味品，并保留 8 个示例菜谱。食物值登记了 WS/T 560—2017 或 USDA/ODS Release 2.0（2025）来源；USDA 数据的四种嘌呤碱基口径与 WS/T 560 不完全相同，新增和补充条目均保持 `PREPARED`，不会伪装成逐项核验完成。官方资料未明确生熟/干湿状态的条目会显示“未注明”，使用时应按实际食物状态选择或另建条目。
 
 今日记录页会根据最近一次真实尿酸实测显示复核提示，并显示来源性的一般食养参考：新鲜蔬菜 `≥500g/日`、饮品容量至少 `2000mL/日`（心肾功能正常且没有限液要求时才可参考）。记录接近这些参考量时会出现页面内提醒；这些数字不是个人医疗目标，也不提供推送或用药建议。
@@ -37,7 +39,7 @@ The same actions are available from an existing terminal, for example `local-tes
 npm run check
 ```
 
-这会执行 TypeScript 构建和 15 项服务端测试。浏览器烟测使用 Playwright：
+这会执行 TypeScript 构建和 16 项自动化测试。浏览器烟测使用 Playwright：
 
 ```powershell
 npx playwright install chromium

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">UricAcid</title>
+  <desc id="desc">Three observation bars with a measurement point</desc>
+  <rect width="512" height="512" rx="116" fill="#183b36"/>
+  <rect x="72" y="72" width="368" height="368" rx="84" fill="#f4f0e8"/>
+  <path d="M120 384h272" fill="none" stroke="#bd552b" stroke-width="12" stroke-linecap="round"/>
+  <rect x="132" y="282" width="56" height="90" rx="28" fill="#183b36"/>
+  <rect x="228" y="216" width="56" height="156" rx="28" fill="#183b36"/>
+  <rect x="324" y="152" width="56" height="220" rx="28" fill="#183b36"/>
+  <circle cx="394" cy="128" r="20" fill="#bd552b"/>
+</svg>

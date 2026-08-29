@@ -1,0 +1,27 @@
+{
+  "id": "/",
+  "name": "UricAcid · 个人观测台",
+  "short_name": "UricAcid",
+  "description": "记录饮食、饮品、血尿酸与治疗过程的个人观察工具。",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f0e8",
+  "theme_color": "#183b36",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
